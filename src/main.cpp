@@ -1357,7 +1357,6 @@ void keyboard(unsigned char k, int x, int y)
         {
             currentGameState = STATE_MENU;
             setGameMessage("", 0.0f);
-            isGameOver = false;
         }
         else if (currentGameState == STATE_PLAYING)
         {
@@ -1393,9 +1392,6 @@ void keyboard(unsigned char k, int x, int y)
         }
         return;
     }
-
-    if (isGameOver)
-        return;
 
     if (currentGameState == STATE_MENU)
     {
