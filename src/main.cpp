@@ -33,7 +33,7 @@ const float NODE_RING_FINAL_OUT = 0.14f;
 const float NODE_RING_FINAL_IN = 0.09f;
 
 const float PLAYER_AVATAR_RADIUS = 0.05f;
-const int   PLAYER_AVATAR_SIDES = 6;
+const int PLAYER_AVATAR_SIDES = 6;
 const float PLAYER_AVATAR_SPIN_SPEED = 180.0f; // deg/sec
 
 const float ARROW_DISPLAY_SIZE = 0.07f;
@@ -44,14 +44,16 @@ const float FONT_SCALE_MEDIUM = 0.00016f;
 const float FONT_SCALE_LARGE = 0.00022f;
 const float FONT_SCALE_XLARGE = 0.0003f;
 
+const float PARTICLE_DRAG = 0.98f;
+const float PARTICLE_GRAVITY = -0.1f;
 
 // ---------- Enums & Structs ----------
 
 enum GameState
 {
     STATE_MENU,
-    STATE_PLAYING,
-    STATE_VIEW_PASSWORDS 
+    STATE_PLAYING
+    // STATE_VIEW_PASSWORDS removed
 };
 
 enum ArrowDir
@@ -98,15 +100,15 @@ struct Node
     // Lock and Key system
     bool isLocked = false;
     bool isKey = false;
-    int keyNode = -1; // If this is a lock, stores the ID of its key
-    int lockNode = -1; // If this is a key, stores the ID of its lock
+    int keyNode = -1;       // If this is a lock, stores the ID of its key
+    int lockNode = -1;      // If this is a key, stores the ID of its lock
     std::vector<ArrowDir> password; // Stores the password for this lock
 };
 
 struct Player
 {
     int currentNode = 0;
-    int highlightedNeighbor = -1; // MODIFIED: -1 means 'self' is highlighted
+    int highlightedNeighbor = -1;
     int targetNode = -1;
     float x = 0, y = 0;
     bool moving = false;
@@ -115,9 +117,18 @@ struct Player
     int moveStartTimeMs = 0;
 };
 
+// NEW: Particle System
+struct Particle
+{
+    float x, y, vx, vy;
+    float life, initialLife;
+    float r, g, b;
+};
+
 // ---------- Globals ----------
 std::vector<Node> nodes;
 Player player;
+std::vector<Particle> particles; // NEW: Particle container
 
 std::vector<Arrow> sequence;
 int seqIdx = 0;
@@ -126,8 +137,9 @@ bool stepWaitingForInput = false;
 int stepStartTimeMs = 0;
 
 int playerLives = STARTING_LIVES;
+int currentLevel = 1; // NEW: Level tracking
 
-int windowW = 960, windowH = 600;
+int windowW = 1920, windowH = 1080;
 GLuint uiTex = 0;
 
 bool finalNodeSpawned = false;
@@ -197,6 +209,22 @@ void drawRing(float cx, float cy, float ro, float ri, int seg = 32)
     glEnd();
 }
 
+// NEW: Helper function to draw the energy icon for lives
+void drawEnergyIcon(float cx, float cy, float radius, float pulseAlpha)
+{
+    // Draw the pulsing outer glow
+    glColor4f(0.2f, 0.8f, 1.0f, 0.5f * pulseAlpha);
+    drawCircle(cx, cy, radius * (1.0f + 0.3f * pulseAlpha));
+    
+    // Draw the solid inner core
+    glColor3f(0.2f, 0.8f, 1.0f);
+    drawCircle(cx, cy, radius * 0.6f);
+    
+    // Draw a brighter center
+    glColor3f(0.8f, 1.0f, 1.0f);
+    drawCircle(cx, cy, radius * 0.2f);
+}
+
 void drawQuad(float x1, float y1, float x2, float y2)
 {
     glBegin(GL_QUADS);
@@ -230,7 +258,8 @@ void playBackgroundMusic()
 
 void playSFX(const char* file)
 {
-    if (!sfxEnabled) return;
+    if (!sfxEnabled)
+        return;
     PlaySound(file, NULL, SND_FILENAME | SND_ASYNC);
 }
 
@@ -264,24 +293,96 @@ GLuint makeProceduralUITexture(int w = 256, int h = 64)
     return tex;
 }
 
+// ---------- NEW: Particle System ----------
+void spawnParticles(int count, float x, float y, float initialSpeed, float r, float g, float b)
+{
+    std::uniform_real_distribution<float> angleDist(0, 2.0f * 3.1415926f);
+    std::uniform_real_distribution<float> speedDist(0.1f, initialSpeed);
+    std::uniform_real_distribution<float> lifeDist(1.0f, 2.0f);
+
+    for (int i = 0; i < count; ++i)
+    {
+        Particle p;
+        p.x = x;
+        p.y = y;
+
+        float angle = angleDist(rng);
+        float speed = speedDist(rng);
+        p.vx = cos(angle) * speed;
+        p.vy = sin(angle) * speed;
+
+        p.life = p.initialLife = lifeDist(rng);
+        p.r = r;
+        p.g = g;
+        p.b = b;
+        particles.push_back(p);
+    }
+}
+
+void updateParticles(float dt)
+{
+    for (int i = (int)particles.size() - 1; i >= 0; --i)
+    {
+        Particle& p = particles[i];
+        p.life -= dt;
+        if (p.life <= 0)
+        {
+            particles.erase(particles.begin() + i);
+            continue;
+        }
+
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+        p.vy += PARTICLE_GRAVITY * dt;
+        p.vx *= PARTICLE_DRAG;
+        p.vy *= PARTICLE_DRAG;
+    }
+}
+
+void drawParticles()
+{
+    glEnable(GL_POINT_SMOOTH);
+    glPointSize(5.0f);
+    glDisable(GL_TEXTURE_2D);
+    glBegin(GL_POINTS);
+    for (const auto& p : particles)
+    {
+        float alpha = p.life / p.initialLife;
+        glColor4f(p.r, p.g, p.b, alpha);
+        glVertex2f(p.x, p.y);
+    }
+    glEnd();
+    glPointSize(1.0f);
+    glDisable(GL_POINT_SMOOTH);
+}
+
 // ---------- Arrow Drawing ----------
 void drawArrowShape(float x, float y, ArrowDir dir, int result, float size = ARROW_DISPLAY_SIZE, float animScale = 1.0f)
 {
     glPushMatrix();
     glTranslatef(x, y, 0);
     float ang = 0;
-    if (dir == ARROW_RIGHT) ang = 0;
-    else if (dir == ARROW_UP) ang = 90;
-    else if (dir == ARROW_LEFT) ang = 180;
-    else ang = -90;
+    if (dir == ARROW_RIGHT)
+        ang = 0;
+    else if (dir == ARROW_UP)
+        ang = 90;
+    else if (dir == ARROW_LEFT)
+        ang = 180;
+    else
+        ang = -90;
     glRotatef(ang, 0, 0, 1);
     glScalef(size * animScale, size * animScale, 1);
 
-    if (result == 1) glColor3f(0.1f, 1.0f, 0.2f); // Perfect
-    else if (result == 2) glColor3f(0.4f, 0.8f, 0.2f); // Good
-    else if (result == 3) glColor3f(1.0f, 0.7f, 0.2f); // Bad
-    else if (result == -1) glColor3f(1.0f, 0.2f, 0.2f); // Miss/Wrong
-    else glColor3f(0.95f, 0.95f, 0.95f); // Default
+    if (result == 1)
+        glColor3f(0.1f, 1.0f, 0.2f); // Perfect
+    else if (result == 2)
+        glColor3f(0.4f, 0.8f, 0.2f); // Good
+    else if (result == 3)
+        glColor3f(1.0f, 0.7f, 0.2f); // Bad
+    else if (result == -1)
+        glColor3f(1.0f, 0.2f, 0.2f); // Miss/Wrong
+    else
+        glColor3f(0.95f, 0.95f, 0.95f); // Default
 
     glBegin(GL_TRIANGLES);
     glVertex2f(0.9f, 0.0f);
@@ -317,64 +418,65 @@ void drawNodeIcon(NodeIcon icon, float x, float y)
 
     switch (icon)
     {
-        case ICON_REWARD:
-            glColor3f(1.0f, 0.9f, 0.3f);
-            drawQuad(x - iconSize, y - lineSize/2, x + iconSize, y + lineSize/2);
-            drawQuad(x - lineSize/2, y - iconSize, x + lineSize/2, y + iconSize);
-            break;
-        case ICON_HAZARD:
-            glColor3f(0.6f, 0.1f, 0.1f);
-            glPushMatrix();
-            glTranslatef(x, y, 0);
-            glRotatef(45, 0, 0, 1);
-            drawQuad(-iconSize, -lineSize/2, iconSize, lineSize/2);
-            drawQuad(-lineSize/2, -iconSize, lineSize/2, iconSize);
-            glPopMatrix();
-            break;
-        case ICON_FAST:
-            glColor3f(0.8f, 0.6f, 0.0f);
-            glBegin(GL_TRIANGLES);
-                glVertex2f(x + 0.005f, y + 0.015f);
-                glVertex2f(x + 0.02f, y);
-                glVertex2f(x + 0.005f, y - 0.015f);
-                glVertex2f(x - 0.015f, y + 0.015f);
-                glVertex2f(x + 0.00f, y);
-                glVertex2f(x - 0.015f, y - 0.015f);
-            glEnd();
-            break;
-        case ICON_KEY:
-            glColor3f(0.1f, 0.1f, 0.1f); // Black key
-            drawCircle(x - 0.01f, y + 0.01f, 0.015f); // Key head
-            drawQuad(x - 0.01f, y - 0.003f, x + 0.02f, y + 0.003f); // Key shaft
-            drawQuad(x + 0.015f, y - 0.01f, x + 0.02f, y + 0.003f); // Key tooth
-            break;
-        case ICON_LOCK:
-            glColor3f(1.0f, 0.3f, 0.3f);
-            drawQuad(x - 0.015f, y - 0.02f, x + 0.015f, y + 0.005f); // Lock body
-            drawRing(x, y + 0.005f, 0.01f, 0.007f, 16); // Shackle
-            break;
-        default:
-            break;
+    case ICON_REWARD:
+        glColor3f(1.0f, 0.9f, 0.3f);
+        drawQuad(x - iconSize, y - lineSize / 2, x + iconSize, y + lineSize / 2);
+        drawQuad(x - lineSize / 2, y - iconSize, x + lineSize / 2, y + iconSize);
+        break;
+    case ICON_HAZARD:
+        glColor3f(0.6f, 0.1f, 0.1f);
+        glPushMatrix();
+        glTranslatef(x, y, 0);
+        glRotatef(45, 0, 0, 1);
+        drawQuad(-iconSize, -lineSize / 2, iconSize, lineSize / 2);
+        drawQuad(-lineSize / 2, -iconSize, lineSize / 2, iconSize);
+        glPopMatrix();
+        break;
+    case ICON_FAST:
+        glColor3f(0.8f, 0.6f, 0.0f);
+        glBegin(GL_TRIANGLES);
+        glVertex2f(x + 0.005f, y + 0.015f);
+        glVertex2f(x + 0.02f, y);
+        glVertex2f(x + 0.005f, y - 0.015f);
+        glVertex2f(x - 0.015f, y + 0.015f);
+        glVertex2f(x + 0.00f, y);
+        glVertex2f(x - 0.015f, y - 0.015f);
+        glEnd();
+        break;
+    case ICON_KEY:
+        glColor3f(0.1f, 0.1f, 0.1f);                // Black key
+        drawCircle(x - 0.01f, y + 0.01f, 0.015f);      // Key head
+        drawQuad(x - 0.01f, y - 0.003f, x + 0.02f, y + 0.003f); // Key shaft
+        drawQuad(x + 0.015f, y - 0.01f, x + 0.02f, y + 0.003f); // Key tooth
+        break;
+    case ICON_LOCK:
+        glColor3f(1.0f, 0.3f, 0.3f);
+        drawQuad(x - 0.015f, y - 0.02f, x + 0.015f, y + 0.005f); // Lock body
+        drawRing(x, y + 0.005f, 0.01f, 0.007f, 16);      // Shackle
+        break;
+    default:
+        break;
     }
 }
 
-
-// ---------- Map ----------
-void makeDemoMap()
+// ---------- Map (REFACTORED) ----------
+void makeMap(int numNodes, int minLinks, int maxLinks, int numLocks)
 {
     nodes.clear();
-    const int N = 9;
+    particles.clear(); // Clear particles on new map
+    const int N = numNodes;
     nodes.resize(N);
 
     std::uniform_real_distribution<float> posDistX(-0.9f, 0.9f);
     std::uniform_real_distribution<float> posDistY(-0.85f, 0.85f);
     std::uniform_int_distribution<int> nodeDist(0, N - 1);
-    std::uniform_int_distribution<int> linkDist(1, 3);
+    std::uniform_int_distribution<int> linkDist(minLinks, maxLinks);
     std::uniform_int_distribution<int> typeDist(0, 10);
     std::uniform_int_distribution<int> arrowDist(0, 3);
 
     const float MIN_DIST = 0.14f;
-    auto placeNode = [&](int idx) {
+    auto placeNode = [&](int idx)
+    {
         int attempts = 0;
         while (attempts++ < 500)
         {
@@ -385,13 +487,25 @@ void makeDemoMap()
             {
                 float dx = x - nodes[j].x;
                 float dy = y - nodes[j].y;
-                if (sqrtf(dx * dx + dy * dy) < MIN_DIST) { ok = false; break; }
+                if (sqrtf(dx * dx + dy * dy) < MIN_DIST)
+                {
+                    ok = false;
+                    break;
+                }
             }
-            if (ok) { nodes[idx].x = x; nodes[idx].y = y; return; }
+            if (ok)
+            {
+                nodes[idx].x = x;
+                nodes[idx].y = y;
+                return;
+            }
         }
-        float gx = -0.8f + (idx % 3) * 0.8f;
-        float gy = 0.6f - (idx / 3) * 0.6f;
-        nodes[idx].x = gx; nodes[idx].y = gy;
+        // Fallback grid placement if random fails
+        float gridCols = sqrt(N);
+        float gx = -0.8f + (idx % (int)gridCols) * (1.6f / (gridCols -1));
+        float gy = 0.6f - (idx / (int)gridCols) * (1.2f / (gridCols - 1));
+        nodes[idx].x = gx;
+        nodes[idx].y = gy;
     };
 
     for (int i = 0; i < N; ++i)
@@ -406,19 +520,26 @@ void makeDemoMap()
         nodes[i].password.clear();
 
         int typeRoll = typeDist(rng);
-        if (typeRoll == 0) nodes[i].type = NODE_HAZARD;
-        else if (typeRoll == 1) nodes[i].type = NODE_FAST;
-        else if (typeRoll == 2 || typeRoll == 3) nodes[i].type = NODE_REWARD;
-        else nodes[i].type = NODE_NORMAL;
+        if (typeRoll == 0)
+            nodes[i].type = NODE_HAZARD;
+        else if (typeRoll == 1)
+            nodes[i].type = NODE_FAST;
+        else if (typeRoll == 2 || typeRoll == 3)
+            nodes[i].type = NODE_REWARD;
+        else
+            nodes[i].type = NODE_NORMAL;
 
         placeNode(i);
     }
 
-    auto orient = [](float ax, float ay, float bx, float by, float cx, float cy) {
+    auto orient = [](float ax, float ay, float bx, float by, float cx, float cy)
+    {
         return (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
     };
-    auto segmentsIntersect = [&](int a, int b, int c, int d) {
-        if (a == c || a == d || b == c || b == d) return false;
+    auto segmentsIntersect = [&](int a, int b, int c, int d)
+    {
+        if (a == c || a == d || b == c || b == d)
+            return false;
         float ax = nodes[a].x, ay = nodes[a].y, bx = nodes[b].x, by = nodes[b].y;
         float cx = nodes[c].x, cy = nodes[c].y, dx = nodes[d].x, dy = nodes[d].y;
         float o1 = orient(ax, ay, bx, by, cx, cy);
@@ -427,7 +548,8 @@ void makeDemoMap()
         float o4 = orient(cx, cy, dx, dy, bx, by);
         return (o1 * o2 < 0.0f) && (o3 * o4 < 0.0f);
     };
-    auto edgeWouldCross = [&](int a, int b) {
+    auto edgeWouldCross = [&](int a, int b)
+    {
         for (int i = 0; i < (int)nodes.size(); ++i)
         {
             for (int j : nodes[i].links)
@@ -446,24 +568,36 @@ void makeDemoMap()
         while ((int)nodes[i].links.size() < desired && attempts++ < 200)
         {
             int j = nodeDist(rng);
-            if (j == i) continue;
+            if (j == i)
+                continue;
             bool already = false;
-            for (int k : nodes[i].links) if (k == j) { already = true; break; }
-            if (already) continue;
-            if ((int)nodes[j].links.size() >= 3) continue;
-            if (edgeWouldCross(i, j)) {
-                if (attempts % 8 != 0) continue;
+            for (int k : nodes[i].links)
+                if (k == j)
+                {
+                    already = true;
+                    break;
+                }
+            if (already)
+                continue;
+            if ((int)nodes[j].links.size() >= maxLinks) // Use maxLinks here
+                continue;
+            if (edgeWouldCross(i, j))
+            {
+                if (attempts % 8 != 0) // Occasionally allow crossing
+                    continue;
             }
             nodes[i].links.push_back(j);
             nodes[j].links.push_back(i);
         }
     }
 
+    // --- Connectivity Check ---
     std::vector<int> comp(N, -1);
     int compId = 0;
     for (int i = 0; i < N; ++i)
     {
-        if (comp[i] != -1) continue;
+        if (comp[i] != -1)
+            continue;
         std::vector<int> q = { i };
         comp[i] = compId;
         for (size_t qi = 0; qi < q.size(); ++qi)
@@ -471,7 +605,11 @@ void makeDemoMap()
             int u = q[qi];
             for (int v : nodes[u].links)
             {
-                if (comp[v] == -1) { comp[v] = compId; q.push_back(v); }
+                if (comp[v] == -1)
+                {
+                    comp[v] = compId;
+                    q.push_back(v);
+                }
             }
         }
         compId++;
@@ -483,56 +621,78 @@ void makeDemoMap()
             bool connected = false;
             for (int a = 0; a < N && !connected; ++a)
             {
-                if (comp[a] != 0) continue;
+                if (comp[a] != 0)
+                    continue;
                 for (int b = 0; b < N && !connected; ++b)
                 {
-                    if (comp[b] != targetComp) continue;
+                    if (comp[b] != targetComp)
+                        continue;
                     if (!edgeWouldCross(a, b) || (rng() % 3 == 0))
                     {
                         nodes[a].links.push_back(b);
                         nodes[b].links.push_back(a);
                         int from = comp[b], to = comp[a];
-                        for (int k = 0; k < N; ++k) if (comp[k] == from) comp[k] = to;
+                        for (int k = 0; k < N; ++k)
+                            if (comp[k] == from)
+                                comp[k] = to;
                         connected = true;
                     }
                 }
             }
-            if (!connected)
+            if (!connected) // Force connection if non-crossing fails
             {
                 for (int a = 0; a < N && !connected; ++a)
                 {
-                    if (comp[a] != 0) continue;
+                    if (comp[a] != 0)
+                        continue;
                     for (int b = 0; b < N && !connected; ++b)
                     {
-                        if (comp[b] != targetComp) continue;
+                        if (comp[b] != targetComp)
+                            continue;
                         nodes[a].links.push_back(b);
                         nodes[b].links.push_back(a);
                         int from = comp[b], to = comp[a];
-                        for (int k = 0; k < N; ++k) if (comp[k] == from) comp[k] = to;
+                        for (int k = 0; k < N; ++k)
+                            if (comp[k] == from)
+                                comp[k] = to;
                         connected = true;
                     }
                 }
             }
         }
     }
-    
-    // --- Add Lock and Key ---
-    int lockNode = nodeDist(rng);
-    int keyNode = nodeDist(rng);
-    while (lockNode == keyNode || nodes[lockNode].type != NODE_NORMAL || nodes[keyNode].type != NODE_NORMAL) {
-        lockNode = nodeDist(rng);
-        keyNode = nodeDist(rng);
-    }
-    nodes[lockNode].isLocked = true;
-    nodes[lockNode].keyNode = keyNode;
-    nodes[keyNode].isKey = true;
-    nodes[keyNode].lockNode = lockNode;
 
-    for (int i = 0; i < 3; ++i) {
-        nodes[lockNode].password.push_back((ArrowDir)arrowDist(rng));
+    // --- Add Lock and Key (REFACTORED) ---
+    for (int i = 0; i < numLocks; ++i)
+    {
+        int lockNode = nodeDist(rng);
+        int keyNode = nodeDist(rng);
+        
+        int attempts = 0;
+        // Make sure we don't pick the same node, or special nodes, or existing lock/key nodes
+        while (attempts < 100 && (lockNode == keyNode || 
+               nodes[lockNode].type != NODE_NORMAL || nodes[keyNode].type != NODE_NORMAL ||
+               nodes[lockNode].isLocked || nodes[lockNode].isKey ||
+               nodes[keyNode].isLocked || nodes[keyNode].isKey))
+        {
+            lockNode = nodeDist(rng);
+            keyNode = nodeDist(rng);
+            attempts++;
+        }
+
+        if(attempts >= 100) continue; // Skip this lock if we can't place it
+
+        nodes[lockNode].isLocked = true;
+        nodes[lockNode].keyNode = keyNode;
+        nodes[keyNode].isKey = true;
+        nodes[keyNode].lockNode = lockNode;
+
+        for (int p = 0; p < 3; ++p) // 3-digit password
+        {
+            nodes[lockNode].password.push_back((ArrowDir)arrowDist(rng));
+        }
     }
     // --- End ---
-
 
     finalNodeSpawned = false;
     gameWon = false;
@@ -542,24 +702,33 @@ void makeDemoMap()
     gameMessageTimer = 0.0f;
     revealedPasswords.clear();
 
-    for (auto& n : nodes) n.visited = false;
+    for (auto& n : nodes)
+        n.visited = false;
+    
+    // Find a valid starting node
     player.currentNode = nodeDist(rng);
-    while(nodes[player.currentNode].isKey || nodes[player.currentNode].isLocked || nodes[player.currentNode].isFinal)
+    int startAttempts = 0;
+    while(startAttempts < 100 && (nodes[player.currentNode].isKey || nodes[player.currentNode].isLocked || nodes[player.currentNode].isFinal))
     {
         player.currentNode = nodeDist(rng);
+        startAttempts++;
     }
+    // If we fail, just pick 0
+    if (startAttempts >= 100) player.currentNode = 0;
+
 
     player.x = nodes[player.currentNode].x;
     player.y = nodes[player.currentNode].y;
-    player.highlightedNeighbor = -1; // NEW: Default to highlighting self
+    player.highlightedNeighbor = -1;
     player.targetNode = -1;
     player.moving = false;
 }
 
 void resetGame()
 {
+    currentLevel = 1; // NEW: Reset level
     playerLives = STARTING_LIVES;
-    makeDemoMap();
+    makeMap(9, 1, 3, 1); // Level 1 map
     inSequence = false;
     sequence.clear();
     player.targetNode = -1;
@@ -574,7 +743,6 @@ void resetGame()
     mciSendString(TEXT("close music"), NULL, 0, NULL);
     playBackgroundMusic();
 }
-
 
 void spawnFinalNode()
 {
@@ -594,18 +762,31 @@ void spawnFinalNode()
         for (auto& n : nodes)
         {
             float dx = x - n.x, dy = y - n.y;
-            if (sqrtf(dx * dx + dy * dy) < MIN_DIST) { ok = false; break; }
+            if (sqrtf(dx * dx + dy * dy) < MIN_DIST)
+            {
+                ok = false;
+                break;
+            }
         }
-        if (ok) { fn.x = x; fn.y = y; break; }
+        if (ok)
+        {
+            fn.x = x;
+            fn.y = y;
+            break;
+        }
     }
-    if (attempts >= 500) { fn.x = 0.7f; fn.y = 0.7f; }
+    if (attempts >= 500)
+    {
+        fn.x = 0.7f;
+        fn.y = 0.7f;
+    }
 
     int idx = (int)nodes.size();
     nodes.push_back(fn);
 
     std::uniform_int_distribution<int> nodeDist(0, (int)nodes.size() - 2);
     int link1 = nodeDist(rng);
-    
+
     nodes[idx].links.push_back(link1);
     nodes[link1].links.push_back(idx);
 
@@ -622,38 +803,43 @@ void spawnFinalNode()
         nodes[idx].links.push_back(link2);
         nodes[link2].links.push_back(idx);
     }
-    
+
     finalNodeSpawned = true;
     finalNodeIndex = idx;
     playSFX("Engage.wav");
     setGameMessage("The Final Node has appeared!");
+    spawnParticles(200, fn.x, fn.y, 2.0f, 1.0f, 0.8f, 0.1f); // NEW: Particle spawn
 }
 
-// MODIFIED: To handle new range -1 to n-1
 void clampHighlightedNeighbor()
 {
-    if (nodes.empty() || player.currentNode < 0 || player.currentNode >= (int)nodes.size()) {
+    if (nodes.empty() || player.currentNode < 0 || player.currentNode >= (int)nodes.size())
+    {
         player.highlightedNeighbor = -1;
         return;
     }
     int n = (int)nodes[player.currentNode].links.size();
-    if (n == 0) {
+    if (n == 0)
+    {
         player.highlightedNeighbor = -1; // Only self is selectable
         return;
     }
-    
+
     // Allow range from -1 (self) to n-1 (last neighbor)
-    if (player.highlightedNeighbor < -1) {
+    if (player.highlightedNeighbor < -1)
+    {
         player.highlightedNeighbor = n - 1; // Wrap from self to last neighbor
     }
-    if (player.highlightedNeighbor >= n) {
+    if (player.highlightedNeighbor >= n)
+    {
         player.highlightedNeighbor = -1; // Wrap from last neighbor to self
     }
 }
 
 void startMoveAnimation(int from, int to)
 {
-    if (from < 0 || from >= (int)nodes.size() || to < 0 || to >= (int)nodes.size()) return;
+    if (from < 0 || from >= (int)nodes.size() || to < 0 || to >= (int)nodes.size())
+        return;
     player.moveFrom = from;
     player.moveTo = to;
     player.moveStartTimeMs = glutGet(GLUT_ELAPSED_TIME);
@@ -663,15 +849,16 @@ void startMoveAnimation(int from, int to)
 
 void attemptMoveToHighlightedNeighbor()
 {
-    if (player.moving) return;
-    // NEW: Check if highlighting self
+    if (player.moving)
+        return;
     if (player.highlightedNeighbor == -1)
     {
         playSFX("Mistake.wav"); // Can't move to self
         return;
     }
-    
-    if (player.currentNode < 0 || player.currentNode >= (int)nodes.size()) return;
+
+    if (player.currentNode < 0 || player.currentNode >= (int)nodes.size())
+        return;
 
     int linkCount = (int)nodes[player.currentNode].links.size();
     if (linkCount == 0)
@@ -683,7 +870,7 @@ void attemptMoveToHighlightedNeighbor()
     clampHighlightedNeighbor();
     int neighbor = nodes[player.currentNode].links[player.highlightedNeighbor];
     Node& targetNode = nodes[neighbor];
-    
+
     if (targetNode.isLocked)
     {
         player.targetNode = neighbor;
@@ -702,7 +889,8 @@ void attemptMoveToHighlightedNeighbor()
     currentSequenceIsFast = false;
     NodeType targetType = targetNode.type;
 
-    if (targetNode.isFinal) setGameMessage("Final Sequence!");
+    if (targetNode.isFinal)
+        setGameMessage("Final Sequence!");
     else if (targetType == NODE_HAZARD)
     {
         currentSequenceIsHazard = true;
@@ -714,9 +902,10 @@ void attemptMoveToHighlightedNeighbor()
         currentSequenceIsFast = true;
         setGameMessage("FAST! Timing is halved!");
     }
-    else if (targetType == NODE_REWARD) setGameMessage("Extra Life Node!");
-    else if (targetNode.isKey) setGameMessage("Key Node! Complete the sequence.");
-
+    else if (targetType == NODE_REWARD)
+        setGameMessage("Energy Cell Added!");
+    else if (targetNode.isKey)
+        setGameMessage("Decrypter Found! Build path.");
 
     std::uniform_int_distribution<int> arrowDist(0, 3);
     std::uniform_int_distribution<int> lenDist(0, 2);
@@ -742,23 +931,37 @@ void attemptMoveToHighlightedNeighbor()
 // ---------- Game Update ----------
 void updateGame()
 {
-    if (isGameOver) return;
-    
+    if (isGameOver)
+        return;
+
     int now = glutGet(GLUT_ELAPSED_TIME);
+    float dt = 0.016f; // NEW: delta time for particle system
+    updateParticles(dt); // NEW: Update particles
+
+    if (gameWon)
+    {
+        // NEW: Spawn victory particles continuously
+        if (rng() % 3 == 0) 
+        {
+            spawnParticles(5, player.x, player.y, 3.0f, 0.2f, 1.0f, 0.3f);
+        }
+    }
 
     for (auto& a : sequence)
     {
         if (a.displayAnim > 0.0f)
         {
             a.displayAnim -= 0.02f;
-            if (a.displayAnim < 0.0f) a.displayAnim = 0.0f;
+            if (a.displayAnim < 0.0f)
+                a.displayAnim = 0.0f;
         }
     }
 
     if (gameMessageTimer > 0.0f)
     {
         gameMessageTimer -= 0.016f;
-        if (gameMessageTimer <= 0.0f) gameMessage = "";
+        if (gameMessageTimer <= 0.0f)
+            gameMessage = "";
     }
 
     if (!finalNodeSpawned && !gameWon)
@@ -766,8 +969,13 @@ void updateGame()
         bool allVisited = true;
         for (size_t i = 0; i < nodes.size(); ++i)
         {
-            if (nodes[i].isFinal) continue;
-            if (!nodes[i].visited) { allVisited = false; break; }
+            if (nodes[i].isFinal)
+                continue;
+            if (!nodes[i].visited)
+            {
+                allVisited = false;
+                break;
+            }
         }
         if (allVisited)
             spawnFinalNode();
@@ -777,13 +985,14 @@ void updateGame()
 
     if (inSequence && !isPasswordInput && stepWaitingForInput)
     {
-        int dt = now - stepStartTimeMs;
-        if (dt > currentBadMs + 300)
+        int dt_ms = now - stepStartTimeMs;
+        if (dt_ms > currentBadMs + 300)
         {
             // --- TIME OUT ---
             sequence[seqIdx].result = -1;
             sequence[seqIdx].displayAnim = 1.2f;
             playSFX("Mistake.wav");
+            spawnParticles(30, player.x, player.y, 1.0f, 1.0f, 0.2f, 0.2f); // NEW: Fail particles
 
             playerLives--;
             if (playerLives <= 0)
@@ -793,7 +1002,7 @@ void updateGame()
             }
             else
             {
-                setGameMessage("Sequence Failed! Lives: " + std::to_string(playerLives), 2.0f);
+                setGameMessage("Sequence Failed! Energy: " + std::to_string(playerLives), 2.0f);
             }
 
             inSequence = false;
@@ -814,7 +1023,7 @@ void updateGame()
             if (player.moveTo >= 0 && player.moveTo < (int)nodes.size() && nodes[player.moveTo].isFinal)
             {
                 gameWon = true;
-                setGameMessage("VICTORY! Press SPACE to restart.", 1000.0f);
+                setGameMessage("NETWORK ANOMALY " + std::to_string(currentLevel) + " SOLVED! Press SPACE.", 1000.0f);
                 playSFX("Success.wav");
             }
         }
@@ -838,7 +1047,7 @@ void handlePasswordInput(ArrowDir pressed)
 
     if (correct)
     {
-        sequence.push_back({pressed, 1, 1.2f});
+        sequence.push_back({ pressed, 1, 1.2f });
         seqIdx++;
         playSFX("Select.wav");
 
@@ -847,13 +1056,14 @@ void handlePasswordInput(ArrowDir pressed)
             lockNode.isLocked = false;
             nodes[lockNode.keyNode].isKey = false;
             lockNode.visited = true;
-            
+
             inSequence = false;
             isPasswordInput = false;
-            
-            setGameMessage("Node Unlocked!", 2.0f);
+
+            setGameMessage("Firewall Unlocked!", 2.0f);
             playSFX("Engage.wav");
-            
+            spawnParticles(100, lockNode.x, lockNode.y, 1.5f, 1.0f, 1.0f, 0.2f); // NEW: Unlock particles
+
             startMoveAnimation(player.currentNode, player.targetNode);
             player.currentNode = player.targetNode;
             player.targetNode = -1;
@@ -870,16 +1080,16 @@ void handlePasswordInput(ArrowDir pressed)
         }
         else
         {
-            setGameMessage("Wrong Password! Lives: " + std::to_string(playerLives), 2.0f);
+            setGameMessage("Access Denied! Energy: " + std::to_string(playerLives), 2.0f);
         }
-        
+
         playSFX("Mistake.wav");
+        spawnParticles(30, player.x, player.y, 1.0f, 1.0f, 0.2f, 0.2f); // NEW: Fail particles
         inSequence = false;
         isPasswordInput = false;
     }
     glutPostRedisplay();
 }
-
 
 void handleArrowPress(ArrowDir pressed)
 {
@@ -889,7 +1099,8 @@ void handleArrowPress(ArrowDir pressed)
         return;
     }
 
-    if (seqIdx >= (int)sequence.size()) return;
+    if (seqIdx >= (int)sequence.size())
+        return;
 
     int dt = glutGet(GLUT_ELAPSED_TIME) - stepStartTimeMs;
 
@@ -902,15 +1113,20 @@ void handleArrowPress(ArrowDir pressed)
     if (sequence[seqIdx].dir == pressed)
     {
         int tier = 0;
-        if (dt <= currentPerfectMs) tier = 1;
-        else if (dt <= currentGoodMs) tier = 2;
-        else if (dt <= currentBadMs) tier = 3;
-        else tier = -1;
+        if (dt <= currentPerfectMs)
+            tier = 1;
+        else if (dt <= currentGoodMs)
+            tier = 2;
+        else if (dt <= currentBadMs)
+            tier = 3;
+        else
+            tier = -1;
 
         if (tier == 1) // Perfect
         {
             sequence[seqIdx].result = 1;
             playSFX("Success.wav");
+            spawnParticles(10, player.x, player.y, 0.5f, 0.1f, 1.0f, 0.2f); // NEW: Perfect particles
         }
         else if (tier == 2) // Good
         {
@@ -930,17 +1146,19 @@ void handleArrowPress(ArrowDir pressed)
                 playSFX("Success.wav");
             }
         }
-        else sequenceFailed = true; // Too late
+        else
+            sequenceFailed = true; // Too late
     }
-    else sequenceFailed = true; // Wrong key
+    else
+        sequenceFailed = true; // Wrong key
 
-    
     if (sequenceFailed)
     {
         // --- FAILURE ---
         sequence[seqIdx].result = -1;
         playSFX("Mistake.wav");
-        
+        spawnParticles(30, player.x, player.y, 1.0f, 1.0f, 0.2f, 0.2f); // NEW: Fail particles
+
         playerLives--;
         if (playerLives <= 0)
         {
@@ -949,9 +1167,9 @@ void handleArrowPress(ArrowDir pressed)
         }
         else
         {
-            setGameMessage("Sequence Failed! Lives: " + std::to_string(playerLives), 2.0f);
+            setGameMessage("Sequence Failed! Energy: " + std::to_string(playerLives), 2.0f);
         }
-        
+
         inSequence = false;
         sequence.clear();
         seqIdx = 0;
@@ -981,10 +1199,11 @@ void handleArrowPress(ArrowDir pressed)
                 int lockId = target.lockNode;
                 // Load the password into the global sequence to display it
                 sequence.clear();
-                for (ArrowDir dir : nodes[lockId].password) {
-                    sequence.push_back({dir, 0, 1.0f});
+                for (ArrowDir dir : nodes[lockId].password)
+                {
+                    sequence.push_back({ dir, 0, 1.0f });
                 }
-                
+
                 revealedPasswords[lockId] = nodes[lockId].password;
 
                 displayingPassword = true;
@@ -995,21 +1214,24 @@ void handleArrowPress(ArrowDir pressed)
                 glutPostRedisplay();
                 return;
             }
-            
+
             target.visited = true;
             if (target.type == NODE_REWARD)
             {
                 playerLives++;
-                setGameMessage("Extra Life! (Lives: " + std::to_string(playerLives) + ")", 2.0f);
+                setGameMessage("Energy Cell Added! (Energy: " + std::to_string(playerLives) + ")", 2.0f);
                 target.type = NODE_NORMAL;
             }
-            
+
+            // NEW: Success particles
+            spawnParticles(50, nodes[player.targetNode].x, nodes[player.targetNode].y, 1.0f, 0.2f, 1.0f, 0.3f);
+
             startMoveAnimation(player.currentNode, player.targetNode);
             player.currentNode = player.targetNode;
             player.targetNode = -1;
             player.highlightedNeighbor = -1; // Default to self
         }
-        
+
         inSequence = false;
         sequence.clear();
         seqIdx = 0;
@@ -1019,20 +1241,25 @@ void handleArrowPress(ArrowDir pressed)
     glutPostRedisplay();
 }
 
-
 void specialKeys(int key, int x, int y)
 {
-    if (displayingPassword) return;
-    if (isGameOver) return;
-    
+    if (displayingPassword)
+        return;
+    if (isGameOver)
+        return;
+
     if (currentGameState == STATE_MENU)
     {
         std::vector<std::string> menuItems;
-        if (isGameOver) menuItems = { "New Game", "Quit" };
-        else if (gameInProgress) menuItems = { "Resume Game", "View Passwords", "Music Volume", "SFX", "Restart Game", "Quit" };
-        else menuItems = { "New Game", "Music Volume", "SFX", "Quit" };
-        
-        if (menuSelectedItem >= (int)menuItems.size()) menuSelectedItem = 0;
+        if (isGameOver)
+            menuItems = { "New Game", "Quit" };
+        else if (gameInProgress)
+            menuItems = { "Resume Game", "Music Volume", "SFX", "Restart Game", "Quit" }; // "View Passwords" removed
+        else
+            menuItems = { "New Game", "Music Volume", "SFX", "Quit" };
+
+        if (menuSelectedItem >= (int)menuItems.size())
+            menuSelectedItem = 0;
         int numItems = (int)menuItems.size();
 
         if (key == GLUT_KEY_UP)
@@ -1079,21 +1306,28 @@ void specialKeys(int key, int x, int y)
         return;
     }
 
-    if (currentGameState != STATE_PLAYING) return;
-    if (gameWon) return;
+    if (currentGameState != STATE_PLAYING)
+        return;
+    if (gameWon)
+        return;
 
     if (inSequence && (stepWaitingForInput || isPasswordInput))
     {
         ArrowDir pressed;
-        if (key == GLUT_KEY_UP) pressed = ARROW_UP;
-        else if (key == GLUT_KEY_DOWN) pressed = ARROW_DOWN;
-        else if (key == GLUT_KEY_LEFT) pressed = ARROW_LEFT;
-        else if (key == GLUT_KEY_RIGHT) pressed = ARROW_RIGHT;
-        else return;
+        if (key == GLUT_KEY_UP)
+            pressed = ARROW_UP;
+        else if (key == GLUT_KEY_DOWN)
+            pressed = ARROW_DOWN;
+        else if (key == GLUT_KEY_LEFT)
+            pressed = ARROW_LEFT;
+        else if (key == GLUT_KEY_RIGHT)
+            pressed = ARROW_RIGHT;
+        else
+            return;
         handleArrowPress(pressed);
         return;
     }
-    
+
     if (!inSequence)
     {
         if (key == GLUT_KEY_LEFT)
@@ -1119,12 +1353,7 @@ void keyboard(unsigned char k, int x, int y)
         {
             return;
         }
-        if (currentGameState == STATE_VIEW_PASSWORDS)
-        {
-            currentGameState = STATE_MENU;
-            glutPostRedisplay();
-            return;
-        }
+        
         if (isGameOver)
         {
             currentGameState = STATE_MENU;
@@ -1150,12 +1379,12 @@ void keyboard(unsigned char k, int x, int y)
         if (k == ' ' || k == 13)
         {
             displayingPassword = false;
-            
+
             if (justRevealedPassword)
             {
                 Node& keyNode = nodes[player.targetNode];
                 keyNode.visited = true;
-                
+
                 startMoveAnimation(player.currentNode, player.targetNode);
                 player.currentNode = player.targetNode;
                 player.targetNode = -1;
@@ -1165,18 +1394,22 @@ void keyboard(unsigned char k, int x, int y)
         }
         return;
     }
-    
-    if (isGameOver) return;
-    
+
+    if (isGameOver)
+        return;
+
     if (currentGameState == STATE_MENU)
     {
         std::vector<std::string> menuItems;
-        if (isGameOver) menuItems = { "New Game", "Quit" };
-        // MODIFIED: Removed "View Passwords" from here
-        else if (gameInProgress) menuItems = { "Resume Game", "Music Volume", "SFX", "Restart Game", "Quit" };
-        else menuItems = { "New Game", "Music Volume", "SFX", "Quit" };
+        if (isGameOver)
+            menuItems = { "New Game", "Quit" };
+        else if (gameInProgress)
+            menuItems = { "Resume Game", "Music Volume", "SFX", "Restart Game", "Quit" }; // "View Passwords" removed
+        else
+            menuItems = { "New Game", "Music Volume", "SFX", "Quit" };
 
-        if (menuSelectedItem >= (int)menuItems.size()) menuSelectedItem = 0;
+        if (menuSelectedItem >= (int)menuItems.size())
+            menuSelectedItem = 0;
         int numItems = (int)menuItems.size();
 
         if (k == 'w' || k == 'W')
@@ -1233,13 +1466,14 @@ void keyboard(unsigned char k, int x, int y)
                 currentGameState = STATE_PLAYING;
                 setGameMessage("", 0.0f);
             }
-            // MODIFIED: Removed "View Passwords"
+            
             else if (item == "Restart Game")
             {
                 resetGame();
                 currentGameState = STATE_PLAYING;
             }
-            else if (item == "Quit") exit(0);
+            else if (item == "Quit")
+                exit(0);
         }
         glutPostRedisplay();
         return;
@@ -1249,7 +1483,28 @@ void keyboard(unsigned char k, int x, int y)
     {
         if (gameWon)
         {
-            if (k == ' ' || k == 13) resetGame();
+            if (k == ' ' || k == 13)
+            {
+                // NEW: Advance to next level
+                currentLevel++;
+                int numNodes = std::min(30, 8 + currentLevel); // Cap nodes at 30
+                int numLocks = std::min(5, 1 + (currentLevel / 2)); // Cap locks at 5
+                int maxLinks = std::min(4, 2 + currentLevel / 3); // Cap links at 4
+                
+                playerLives = STARTING_LIVES + (currentLevel / 3); // Bonus life every 3 levels
+                makeMap(numNodes, 1, maxLinks, numLocks);
+                
+                // Reset player state
+                inSequence = false;
+                sequence.clear();
+                player.targetNode = -1;
+                finalNodeSpawned = false;
+                gameWon = false;
+                isGameOver = false;
+                finalNodeIndex = -1;
+                gameInProgress = true;
+                setGameMessage("Level " + std::to_string(currentLevel) + "!", 2.0f);
+            }
             return;
         }
 
@@ -1270,11 +1525,16 @@ void keyboard(unsigned char k, int x, int y)
             }
 
             ArrowDir pressed;
-            if (k == 'w' || k == 'W') pressed = ARROW_UP;
-            else if (k == 's' || k == 'S') pressed = ARROW_DOWN;
-            else if (k == 'a' || k == 'A') pressed = ARROW_LEFT;
-            else if (k == 'd' || k == 'D') pressed = ARROW_RIGHT;
-            else return;
+            if (k == 'w' || k == 'W')
+                pressed = ARROW_UP;
+            else if (k == 's' || k == 'S')
+                pressed = ARROW_DOWN;
+            else if (k == 'a' || k == 'A')
+                pressed = ARROW_LEFT;
+            else if (k == 'd' || k == 'D')
+                pressed = ARROW_RIGHT;
+            else
+                return;
             handleArrowPress(pressed);
             return;
         }
@@ -1293,19 +1553,20 @@ void keyboard(unsigned char k, int x, int y)
             }
             else
             {
-                // MODIFIED: Handle spacebar on self-node
                 if (player.highlightedNeighbor == -1) // Player is highlighting self
                 {
                     Node& selfNode = nodes[player.currentNode];
                     int lockId = -1;
-                    if (selfNode.isKey) lockId = selfNode.lockNode;
-                    
+                    if (selfNode.isKey)
+                        lockId = selfNode.lockNode;
+
                     if (lockId != -1 && revealedPasswords.count(lockId))
                     {
                         // View password
                         sequence.clear();
-                        for (ArrowDir dir : revealedPasswords[lockId]) {
-                            sequence.push_back({dir, 0, 1.0f});
+                        for (ArrowDir dir : revealedPasswords[lockId])
+                        {
+                            sequence.push_back({ dir, 0, 1.0f });
                         }
                         displayingPassword = true;
                         justRevealedPassword = false;
@@ -1328,7 +1589,7 @@ void keyboard(unsigned char k, int x, int y)
             }
             glutPostRedisplay();
         }
-        
+
         if (!inSequence)
         {
             if (k == 'a' || k == 'A')
@@ -1345,48 +1606,7 @@ void keyboard(unsigned char k, int x, int y)
                 playSFX("Select.wav");
                 glutPostRedisplay();
             }
-            if (k == 'v' || k == 'V')
-            {
-                if (!nodes.empty())
-                {
-                    clampHighlightedNeighbor();
-                    int targetIdx = -1;
-                    if (player.highlightedNeighbor == -1)
-                        targetIdx = player.currentNode;
-                    else if (player.highlightedNeighbor < (int)nodes[player.currentNode].links.size())
-                        targetIdx = nodes[player.currentNode].links[player.highlightedNeighbor];
-                    
-                    if (targetIdx != -1)
-                    {
-                        Node& targetNode = nodes[targetIdx];
-                        int lockId = -1;
-                        if (targetNode.isKey) lockId = targetNode.lockNode;
-                        if (targetNode.isLocked) lockId = targetIdx;
-
-                        if (lockId != -1)
-                        {
-                            if (revealedPasswords.count(lockId))
-                            {
-                                sequence.clear();
-                                for (ArrowDir dir : revealedPasswords[lockId]) {
-                                    sequence.push_back({dir, 0, 1.0f});
-                                }
-                                displayingPassword = true;
-                                justRevealedPassword = false;
-                                setGameMessage("Viewing Password. Press SPACE.", 1000.0f);
-                            }
-                            else
-                            {
-                                setGameMessage("Password not yet discovered!", 1.5f);
-                            }
-                        }
-                        else
-                        {
-                            setGameMessage("Not a Lock or Key node.", 1.0f);
-                        }
-                    }
-                }
-            }
+            // 'v' key logic removed here
         }
     }
 }
@@ -1416,18 +1636,20 @@ void drawAvatar(float x, float y)
 void drawBackgroundGrid()
 {
     float time = glutGet(GLUT_ELAPSED_TIME) / 5000.0f;
-    
+
     glColor4f(0.10f, 0.12f, 0.16f, 1.0f);
     glLineWidth(1.0f);
     glBegin(GL_LINES);
     for (float x = -2.0f; x <= 2.01f; x += 0.12f)
     {
-        glVertex2f(x, -1.0f); glVertex2f(x, 1.0f);
+        glVertex2f(x, -1.0f);
+        glVertex2f(x, 1.0f);
     }
     float y_offset_far = fmod(time * 0.1f, 0.12f);
     for (float y = -1.0f; y <= 1.01f; y += 0.12f)
     {
-        glVertex2f(-screenAspect, y + y_offset_far); glVertex2f(screenAspect, y + y_offset_far);
+        glVertex2f(-screenAspect, y + y_offset_far);
+        glVertex2f(screenAspect, y + y_offset_far);
     }
     glEnd();
 
@@ -1437,7 +1659,8 @@ void drawBackgroundGrid()
     float y_offset_near = fmod(time * 0.3f, 0.12f);
     for (float y = -1.0f; y <= 1.01f; y += 0.12f)
     {
-        glVertex2f(-screenAspect, y + y_offset_near - 0.06f); glVertex2f(screenAspect, y + y_offset_near - 0.06f);
+        glVertex2f(-screenAspect, y + y_offset_near - 0.06f);
+        glVertex2f(screenAspect, y + y_offset_near - 0.06f);
     }
     glEnd();
 }
@@ -1448,25 +1671,24 @@ void drawMap()
 
     glLineWidth(3.0f);
     float globalPulse = 0.8f + 0.2f * (1.0f + sinf(glutGet(GLUT_ELAPSED_TIME) * 0.005f));
-    
+
     int highlightedNodeIndex = -1;
     if (!nodes.empty() && player.currentNode >= 0 && player.currentNode < (int)nodes.size() && !inSequence && !player.moving && !displayingPassword)
     {
         clampHighlightedNeighbor();
-        if(player.highlightedNeighbor >= 0) // Only if highlighting a neighbor
+        if (player.highlightedNeighbor >= 0) // Only if highlighting a neighbor
             highlightedNodeIndex = nodes[player.currentNode].links[player.highlightedNeighbor];
     }
-    
+
     for (size_t i = 0; i < nodes.size(); i++)
     {
         for (int j : nodes[i].links)
         {
-            if (j < (int)i) continue;
+            if (j < (int)i)
+                continue;
 
             bool isPlayerLink = (i == player.currentNode || j == player.currentNode) && !player.moving && !inSequence && !displayingPassword;
-            // NEW: Check if this link is connected to the highlighted node
             bool isHighlightLink = (highlightedNodeIndex != -1) && (i == highlightedNodeIndex || j == highlightedNodeIndex) && !player.moving && !inSequence && !displayingPassword;
-
 
             if (isHighlightLink)
             {
@@ -1480,7 +1702,7 @@ void drawMap()
             {
                 glColor3f(0.6f, 0.75f, 0.9f); // Standard link
             }
-            
+
             glBegin(GL_LINES);
             glVertex2f(nodes[i].x, nodes[i].y);
             glVertex2f(nodes[j].x, nodes[j].y);
@@ -1512,21 +1734,29 @@ void drawMap()
         }
         else
         {
-            if (nodes[i].type == NODE_HAZARD) glColor3f(1.0f, 0.3f, 0.3f);
-            else if (nodes[i].type == NODE_FAST) glColor3f(1.0f, 0.8f, 0.2f);
-            else glColor3f(0.95f, 0.95f, 0.95f);
+            if (nodes[i].type == NODE_HAZARD)
+                glColor3f(1.0f, 0.3f, 0.3f);
+            else if (nodes[i].type == NODE_FAST)
+                glColor3f(1.0f, 0.8f, 0.2f);
+            else
+                glColor3f(0.95f, 0.95f, 0.95f);
             drawCircle(x, y, NODE_RADIUS_UNVISITED);
         }
 
         // --- Draw Icons ---
         NodeIcon icon = ICON_NONE;
-        if (nodes[i].type == NODE_REWARD) icon = ICON_REWARD;
-        else if (nodes[i].type == NODE_HAZARD) icon = ICON_HAZARD;
-        else if (nodes[i].type == NODE_FAST) icon = ICON_FAST;
-        
-        if (nodes[i].isKey) icon = ICON_KEY;
-        else if (nodes[i].isLocked) icon = ICON_LOCK;
-        
+        if (nodes[i].type == NODE_REWARD)
+            icon = ICON_REWARD;
+        else if (nodes[i].type == NODE_HAZARD)
+            icon = ICON_HAZARD;
+        else if (nodes[i].type == NODE_FAST)
+            icon = ICON_FAST;
+
+        if (nodes[i].isKey)
+            icon = ICON_KEY;
+        else if (nodes[i].isLocked)
+            icon = ICON_LOCK;
+
         if (icon != ICON_NONE)
         {
             drawNodeIcon(icon, x, y);
@@ -1555,10 +1785,14 @@ void drawTexturedQuad(float cx, float cy, float w, float h, float alpha = 1.0f)
     glBindTexture(GL_TEXTURE_2D, uiTex);
     glColor4f(1, 1, 1, alpha);
     glBegin(GL_QUADS);
-    glTexCoord2f(0, 0); glVertex2f(cx - w / 2, cy - h / 2);
-    glTexCoord2f(1, 0); glVertex2f(cx + w / 2, cy - h / 2);
-    glTexCoord2f(1, 1); glVertex2f(cx + w / 2, cy + h / 2);
-    glTexCoord2f(0, 1); glVertex2f(cx - w / 2, cy + h / 2);
+    glTexCoord2f(0, 0);
+    glVertex2f(cx - w / 2, cy - h / 2);
+    glTexCoord2f(1, 0);
+    glVertex2f(cx + w / 2, cy - h / 2);
+    glTexCoord2f(1, 1);
+    glVertex2f(cx + w / 2, cy + h / 2);
+    glTexCoord2f(0, 1);
+    glVertex2f(cx - w / 2, cy + h / 2);
     glEnd();
     glDisable(GL_TEXTURE_2D);
 }
@@ -1571,16 +1805,16 @@ void drawPasswordDisplay()
     glColor3f(0.15f, 0.5f, 0.9f);
     drawQuad(cx - w / 2, cy + h / 2 - 0.03f, cx + w / 2, cy + h / 2);
     glColor3f(1, 1, 1);
-    
+
     if (justRevealedPassword)
-        drawString("PASSWORD REVEALED", cx - 0.22f, cy + h / 2 - 0.022f, FONT_SCALE_LARGE);
+        drawString("DECRYPTER PATH ACQUIRED", cx - 0.22f, cy + h / 2 - 0.022f, FONT_SCALE_LARGE);
     else
         drawString("VIEWING PASSWORD", cx - 0.22f, cy + h / 2 - 0.022f, FONT_SCALE_LARGE);
 
-
     float arrowY = cy - 0.01f;
     int numArrows = (int)sequence.size();
-    if (numArrows == 0) return;
+    if (numArrows == 0)
+        return;
 
     float totalWidth = (numArrows - 1) * ARROW_UI_X_SPACING;
     float startX = cx - totalWidth / 2.0f;
@@ -1593,7 +1827,6 @@ void drawPasswordDisplay()
 
     drawString("Press SPACE to Continue", cx - 0.2f, cy - 0.08f, FONT_SCALE_MEDIUM);
 }
-
 
 void drawSequenceUI()
 {
@@ -1609,7 +1842,8 @@ void drawSequenceUI()
 
         float arrowY = cy - 0.01f;
         int numArrows = (int)nodes[player.targetNode].password.size();
-        if (numArrows == 0) return;
+        if (numArrows == 0)
+            return;
 
         float totalWidth = (numArrows - 1) * ARROW_UI_X_SPACING;
         float startX = cx - totalWidth / 2.0f;
@@ -1627,7 +1861,6 @@ void drawSequenceUI()
                 drawCircle(px, arrowY, 0.02f);
             }
         }
-        // NEW: Add cancel prompt
         drawString("Press SPACE to Cancel", cx - 0.2f, cy - 0.08f, FONT_SCALE_MEDIUM);
         return;
     }
@@ -1643,7 +1876,8 @@ void drawSequenceUI()
 
     float arrowY = cy - 0.01f;
     int numArrows = (int)sequence.size();
-    if (numArrows == 0) return;
+    if (numArrows == 0)
+        return;
 
     float totalWidth = (numArrows - 1) * ARROW_UI_X_SPACING;
     float startX = cx - totalWidth / 2.0f;
@@ -1652,7 +1886,7 @@ void drawSequenceUI()
     {
         float px = startX + i * ARROW_UI_X_SPACING;
         float animScale = 1.0f + 0.12f * sequence[i].displayAnim;
-        
+
         if (i == seqIdx && stepWaitingForInput)
         {
             float pulse = 1.0f + 0.1f * (1.0f + sinf(glutGet(GLUT_ELAPSED_TIME) * 0.008f));
@@ -1685,7 +1919,8 @@ void drawSequenceUI()
 
         int dt = glutGet(GLUT_ELAPSED_TIME) - stepStartTimeMs;
         float progress = (float)dt / (float)currentBadMs;
-        if (progress > 1.0f) progress = 1.0f;
+        if (progress > 1.0f)
+            progress = 1.0f;
 
         glColor3f(1.0f, 0.2f, 0.2f);
         float timerX = barX + barW * progress;
@@ -1693,19 +1928,33 @@ void drawSequenceUI()
     }
 }
 
-// ---------- HUD & Menu (MODIFIED) ----------
+// ---------- HUD & Menu ----------
 void displayHUD()
 {
     float hudX = -screenAspect + 0.05f;
     float hudY = 0.95f;
-    float lineH = 0.05f;
+    float lineH = 0.06f; 
 
     glColor3f(1, 1, 1);
-    drawString("Controls: A/D/Arrows | SPACE: action | V: view pass | ESC: menu", hudX, hudY, FONT_SCALE_MEDIUM);
+    drawString("ESC: Menu | A/D/Arrows: Select | SPACE: Action", hudX, hudY, FONT_SCALE_LARGE);
     hudY -= lineH;
 
-    std::string livesText = "Lives: " + std::to_string(playerLives);
-    drawString(livesText.c_str(), hudX, hudY, FONT_SCALE_MEDIUM);
+    std::string levelText = "Anomaly Level: " + std::to_string(currentLevel);
+    drawString(levelText.c_str(), hudX, hudY, FONT_SCALE_LARGE);
+    hudY -= lineH;
+
+    // --- REPLACED LIVES TEXT WITH ENERGY ICONS ---
+    drawString("Energy:", hudX, hudY, FONT_SCALE_LARGE);
+    float energyX = hudX + 0.22f;
+    float energyRadius = 0.02f;
+    float energySpacing = 0.05f;
+    float pulse = 0.5f + 0.5f * (1.0f + sinf(glutGet(GLUT_ELAPSED_TIME) * 0.004f));
+    for(int i = 0; i < playerLives; ++i)
+    {
+        drawEnergyIcon(energyX + i * energySpacing, hudY + 0.015f, energyRadius, pulse);
+    }
+    // --- END REPLACEMENT ---
+    
     hudY -= lineH;
 
     if (inSequence)
@@ -1715,117 +1964,83 @@ void displayHUD()
 
     if (gameMessageTimer > 0.0f)
     {
-        if (isGameOver) glColor3f(1.0f, 0.2f, 0.2f);
-        else glColor3f(1.0f, 0.9f, 0.2f);
+        if (isGameOver)
+            glColor3f(1.0f, 0.2f, 0.2f);
+        else
+            glColor3f(1.0f, 0.9f, 0.2f);
         drawString(gameMessage.c_str(), -0.6f, 0.0f, FONT_SCALE_LARGE);
     }
     if (gameWon)
     {
         glColor3f(0.2f, 1.0f, 0.3f);
-        drawString("VICTORY! Press SPACE to restart", -0.7f, 0.1f, FONT_SCALE_LARGE);
+        drawString(("LEVEL " + std::to_string(currentLevel) + " COMPLETE! Press SPACE.").c_str(), -0.7f, 0.1f, FONT_SCALE_LARGE);
     }
 
     // --- Legend ---
     float legendX = -screenAspect + 0.05f;
-    float legendY = -0.45f;
-    float legendSpacing = 0.05f;
-    float legendIconSize = 0.02f;
-    float legendTextX = legendX + 0.05f;
-    float textYOff = -0.01f;
+    float legendY = -0.40f;
+    float legendSpacing = 0.06f;
+    float legendIconSize = 0.025f;
+    float legendTextX = legendX + 0.06f;
+    float textYOff = -0.012f;
 
     glColor3f(1.0f, 1.0f, 1.0f);
-    drawString("Legend:", legendX, legendY, FONT_SCALE_LARGE);
+    drawString("WATCH OUT:", legendX, legendY, FONT_SCALE_LARGE);
     legendY -= (legendSpacing * 1.2f);
 
-    drawAvatarShape(legendX + legendIconSize * 0.5f, legendY, legendIconSize * 0.7f);
+    drawAvatarShape(legendX + legendIconSize * 0.5f, legendY, legendIconSize * 0.9f);
     glColor3f(1.0f, 1.0f, 1.0f);
-    drawString("You", legendTextX, legendY + textYOff, FONT_SCALE_MEDIUM);
+    drawString("You", legendTextX, legendY + textYOff, FONT_SCALE_LARGE);
     legendY -= legendSpacing;
 
     glColor3f(0.95f, 0.95f, 0.95f);
-    drawCircle(legendX + legendIconSize * 0.5f, legendY, NODE_RADIUS_UNVISITED * 0.5f);
-    drawString("Unvisited Node", legendTextX, legendY + textYOff, FONT_SCALE_MEDIUM);
+    drawCircle(legendX + legendIconSize * 0.5f, legendY, NODE_RADIUS_UNVISITED * 0.6f);
+    drawString("Unknown Node", legendTextX, legendY + textYOff, FONT_SCALE_LARGE);
     legendY -= legendSpacing;
 
     glColor3f(0.22f, 0.45f, 0.85f);
-    drawCircle(legendX + legendIconSize * 0.5f, legendY, NODE_RADIUS_VISITED * 0.5f);
-    drawString("Visited Node", legendTextX, legendY + textYOff, FONT_SCALE_MEDIUM);
+    drawCircle(legendX + legendIconSize * 0.5f, legendY, NODE_RADIUS_VISITED * 0.6f);
+    drawString("Cracked Node", legendTextX, legendY + textYOff, FONT_SCALE_LARGE);
     legendY -= legendSpacing;
 
     glColor3f(0.4f, 1.0f, 0.5f);
-    drawRing(legendX + legendIconSize * 0.5f, legendY, NODE_RING_HIGHLIGHT_OUT * 0.4f, NODE_RING_HIGHLIGHT_IN * 0.4f);
+    drawRing(legendX + legendIconSize * 0.5f, legendY, NODE_RING_HIGHLIGHT_OUT * 0.5f, NODE_RING_HIGHLIGHT_IN * 0.5f);
     glColor3f(1.0f, 1.0f, 1.0f);
-    drawString("Highlighted Target", legendTextX, legendY + textYOff, FONT_SCALE_MEDIUM);
+    drawString("Target Node", legendTextX, legendY + textYOff, FONT_SCALE_LARGE);
     legendY -= legendSpacing;
 
     drawNodeIcon(ICON_KEY, legendX + legendIconSize * 0.5f, legendY);
     glColor3f(1.0f, 1.0f, 1.0f);
-    drawString("Key Node (Reveals Password)", legendTextX, legendY + textYOff, FONT_SCALE_MEDIUM);
+    drawString("Decrypter Key", legendTextX, legendY + textYOff, FONT_SCALE_LARGE);
     legendY -= legendSpacing;
 
     drawNodeIcon(ICON_LOCK, legendX + legendIconSize * 0.5f, legendY);
     glColor3f(1.0f, 1.0f, 1.0f);
-    drawString("Locked Node (Requires Password)", legendTextX, legendY + textYOff, FONT_SCALE_MEDIUM);
+    drawString("Encrypted Node", legendTextX, legendY + textYOff, FONT_SCALE_LARGE);
     legendY -= legendSpacing;
 
     glColor3f(1.0f, 0.9f, 0.3f);
     drawNodeIcon(ICON_REWARD, legendX + legendIconSize * 0.5f, legendY);
     glColor3f(1.0f, 1.0f, 1.0f);
-    drawString("Extra Life Node", legendTextX, legendY + textYOff, FONT_SCALE_MEDIUM);
+    drawString("Energy Cell", legendTextX, legendY + textYOff, FONT_SCALE_LARGE);
     legendY -= legendSpacing;
 
     glColor3f(1.0f, 0.3f, 0.3f);
-    drawCircle(legendX + legendIconSize * 0.5f, legendY, NODE_RADIUS_UNVISITED * 0.5f);
+    drawCircle(legendX + legendIconSize * 0.5f, legendY, NODE_RADIUS_UNVISITED * 0.6f);
     drawNodeIcon(ICON_HAZARD, legendX + legendIconSize * 0.5f, legendY);
     glColor3f(1.0f, 1.0f, 1.0f);
-    drawString("Hazard Node (Fast & Good/Perfect!)", legendTextX, legendY + textYOff, FONT_SCALE_MEDIUM);
+    drawString("Hazard Node", legendTextX, legendY + textYOff, FONT_SCALE_LARGE);
     legendY -= legendSpacing;
 
     glColor3f(1.0f, 0.8f, 0.2f);
-    drawCircle(legendX + legendIconSize * 0.5f, legendY, NODE_RADIUS_UNVISITED * 0.5f);
+    drawCircle(legendX + legendIconSize * 0.5f, legendY, NODE_RADIUS_UNVISITED * 0.6f);
     drawNodeIcon(ICON_FAST, legendX + 0.005f, legendY);
     glColor3f(1.0f, 1.0f, 1.0f);
-    drawString("Fast Node (Timing halved!)", legendTextX, legendY + textYOff, FONT_SCALE_MEDIUM);
+    drawString("Fast Node", legendTextX, legendY + textYOff, FONT_SCALE_LARGE);
     legendY -= legendSpacing;
 }
 
-void drawPasswordScreen()
-{
-    glColor4f(0.0f, 0.0f, 0.0f, 0.9f);
-    drawQuad(-screenAspect, -1.0f, screenAspect, 1.0f);
-
-    float cx = -0.7f;
-    float cy = 0.8f;
-    float lineSpacing = 0.1f;
-
-    glColor3f(1.0f, 1.0f, 1.0f);
-    drawString("REVEALED PASSWORDS", cx, cy, FONT_SCALE_LARGE);
-    cy -= lineSpacing * 1.5f;
-
-    if (revealedPasswords.empty())
-    {
-        drawString("No passwords found yet. Find a Key Node!", cx, cy, FONT_SCALE_MEDIUM);
-    }
-    else
-    {
-        for (auto const& [lockId, password] : revealedPasswords)
-        {
-            std::string title = "Lock " + std::to_string(lockId) + ":";
-            drawString(title.c_str(), cx, cy, FONT_SCALE_MEDIUM);
-            
-            float arrowX = cx + 0.3f;
-            for(size_t i = 0; i < password.size(); ++i)
-            {
-                drawArrowShape(arrowX + i * ARROW_UI_X_SPACING, cy + 0.01f, password[i], 0, ARROW_DISPLAY_SIZE, 1.0f);
-            }
-            cy -= lineSpacing;
-        }
-    }
-
-    glColor3f(0.8f, 0.8f, 0.8f);
-    drawString("Press ESC to return to Menu", cx, -0.9f, FONT_SCALE_MEDIUM);
-}
-
+// Removed drawPasswordScreen() function
 
 void drawMenu()
 {
@@ -1839,17 +2054,16 @@ void drawMenu()
     glColor3f(1.0f, 1.0f, 1.0f);
     drawString("THISPATCHED", cx, cy, FONT_SCALE_XLARGE);
     cy -= menuSpacing * 1.5f;
-    
+
     std::vector<std::string> menuItems;
-    
+
     if (isGameOver)
     {
         menuItems = { "New Game", "Quit" };
     }
     else if (gameInProgress)
     {
-        // MODIFIED: Removed "View Passwords"
-        menuItems = { "Resume Game", "Music Volume", "SFX", "Restart Game", "Quit" };
+        menuItems = { "Resume Game", "Music Volume", "SFX", "Restart Game", "Quit" }; // "View Passwords" removed
     }
     else
     {
@@ -1864,17 +2078,20 @@ void drawMenu()
     for (size_t i = 0; i < menuItems.size(); ++i)
     {
         float y = cy - i * menuSpacing;
-        
+
         if (i == menuSelectedItem)
         {
             glColor3f(0.1f, 1.0f, 0.2f);
             drawArrowShape(cx - 0.05f, y + 0.02f, ARROW_RIGHT, 0, 0.05f);
         }
-        else glColor3f(1.0f, 1.0f, 1.0f);
+        else
+            glColor3f(1.0f, 1.0f, 1.0f);
 
         std::string itemText = menuItems[i];
-        if (itemText == "Music Volume") itemText = std::string("Music Volume: < ") + std::to_string(musicVolume) + " >";
-        else if (itemText == "SFX") itemText = std::string("SFX: < ") + (sfxEnabled ? "ON" : "OFF") + " >";
+        if (itemText == "Music Volume")
+            itemText = std::string("Music Volume: < ") + std::to_string(musicVolume) + " >";
+        else if (itemText == "SFX")
+            itemText = std::string("SFX: < ") + (sfxEnabled ? "ON" : "OFF") + " >";
 
         drawString(itemText.c_str(), cx, y, FONT_SCALE_LARGE);
     }
@@ -1891,32 +2108,33 @@ void drawGame()
     glLoadIdentity();
 
     drawMap();
+    drawParticles(); // NEW: Draw particles
     drawAvatar(player.x, player.y);
     displayHUD();
-    
+
     if (inSequence)
         drawSequenceUI();
     else if (displayingPassword)
         drawPasswordDisplay();
 
-
+    // Vignette
     glMatrixMode(GL_PROJECTION);
     glPushMatrix();
     glLoadIdentity();
     glMatrixMode(GL_MODELVIEW);
     glLoadIdentity();
-    
+
     glBegin(GL_TRIANGLE_FAN);
     glColor4f(0.0f, 0.0f, 0.0f, 0.0f);
     glVertex2f(0.0f, 0.0f);
     glColor4f(0.0f, 0.0f, 0.0f, 0.7f);
     glVertex2f(-1.0f, -1.0f);
-    glVertex2f( 1.0f, -1.0f);
-    glVertex2f( 1.0f,  1.0f);
-    glVertex2f(-1.0f,  1.0f);
+    glVertex2f(1.0f, -1.0f);
+    glVertex2f(1.0f, 1.0f);
+    glVertex2f(-1.0f, 1.0f);
     glVertex2f(-1.0f, -1.0f);
     glEnd();
-    
+
     glMatrixMode(GL_PROJECTION);
     glPopMatrix();
     glMatrixMode(GL_MODELVIEW);
@@ -1931,12 +2149,8 @@ void display()
     {
         drawMenu();
     }
-    else if (currentGameState == STATE_VIEW_PASSWORDS)
-    {
-        drawMenu();
-        drawPasswordScreen();
-    }
-
+    // Removed block for STATE_VIEW_PASSWORDS
+    
     glutSwapBuffers();
 }
 
@@ -1947,10 +2161,11 @@ void reshape(int w, int h)
     glViewport(0, 0, w, h);
     glMatrixMode(GL_PROJECTION);
     glLoadIdentity();
-    if (h == 0) h = 1;
+    if (h == 0)
+        h = 1;
     float asp = (float)w / (float)h;
 
-    screenAspect = asp; 
+    screenAspect = asp;
 
     if (asp >= 1.0f)
         glOrtho(-asp, asp, -1, 1, -1, 1);
@@ -1967,7 +2182,7 @@ void timerFunc(int)
     {
         updateGame();
     }
-    
+
     glutPostRedisplay();
     glutTimerFunc(16, timerFunc, 0);
 }
@@ -1978,13 +2193,14 @@ int main(int argc, char** argv)
     glutInit(&argc, argv);
     glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGBA | GLUT_MULTISAMPLE);
     glutInitWindowSize(windowW, windowH);
-    glutCreateWindow("ThisPatched");
+    glutCreateWindow("THISPATCHED");
 
-    try {
-        HWND hwnd = FindWindow(NULL, TEXT("ThisPatched"));
+    try
+    {
+        HWND hwnd = FindWindow(NULL, TEXT("THISPATCHED"));
         if (hwnd)
         {
-            HICON hIcon = (HICON)LoadImage(NULL, TEXT("my_icon.ico"), IMAGE_ICON, 0, 0, LR_LOADFROMFILE | LR_DEFAULTSIZE);
+            HICON hIcon = (HICON)LoadImage(NULL, TEXT("thispatched.ico"), IMAGE_ICON, 0, 0, LR_LOADFROMFILE | LR_DEFAULTSIZE);
             if (hIcon)
             {
                 SendMessage(hwnd, WM_SETICON, ICON_SMALL, (LPARAM)hIcon);
@@ -1992,9 +2208,11 @@ int main(int argc, char** argv)
             }
         }
     }
-    catch (...) { }
+    catch (...)
+    {
+    }
 
-    playBackgroundMusic(); 
+    playBackgroundMusic();
     glutDisplayFunc(display);
     glutKeyboardFunc(keyboard);
     glutSpecialFunc(specialKeys);
@@ -2003,12 +2221,13 @@ int main(int argc, char** argv)
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glEnable(GL_LINE_SMOOTH);
-    
+    glEnable(GL_POINT_SMOOTH); // For particles
+
     uiTex = makeProceduralUITexture(256, 64);
-    
-    makeDemoMap(); 
-    gameInProgress = false; 
-    currentGameState = STATE_MENU; 
+
+    makeMap(9, 1, 3, 1); // Start with Level 1 map
+    gameInProgress = false;
+    currentGameState = STATE_MENU;
 
     glutTimerFunc(16, timerFunc, 0);
     glutMainLoop();
