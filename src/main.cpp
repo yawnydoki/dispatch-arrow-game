@@ -38,13 +38,14 @@ const float ARROW_UI_X_SPACING = 0.12f;
 const float ARROW_UI_START_X = -0.15f;
 const float ARROW_UI_POS_Y = 0.55f;
 
-const float HUD_POS_X = -0.95f;
-const float HUD_POS_Y = 0.95f;
-const float HUD_LINE_SPACING = 0.03f;
+// NEW: Updated Font Scales for Readability
+const float FONT_SCALE_MEDIUM = 0.00016f;
+const float FONT_SCALE_LARGE = 0.00022f;
+const float FONT_SCALE_XLARGE = 0.0003f;
+
 
 // ---------- Enums & Structs ----------
 
-// NEW: Game State
 enum GameState
 {
     STATE_MENU,
@@ -121,31 +122,28 @@ std::mt19937 rng(static_cast<unsigned int>(std::time(0)));
 bool currentSequenceIsHazard = false;
 bool currentSequenceIsFast = false;
 
-// NEW: State and Menu Globals
 GameState currentGameState = STATE_MENU;
 int musicVolume = 70; // 0-100
 bool sfxEnabled = true;
 int menuSelectedItem = 0;
-bool gameInProgress = false; // Is a game active (not on first menu)
+bool gameInProgress = false;
 
+float screenAspect = 1.6f;
 
 // ---------- Utility ----------
-const char* dirName(ArrowDir d)
-{
-    switch (d)
-    {
-    case ARROW_UP: return "UP";
-    case ARROW_DOWN: return "DOWN";
-    case ARROW_LEFT: return "LEFT";
-    default: return "RIGHT";
-    }
-}
 
-void drawString(const char* s, float x, float y)
+// MODIFIED: Unified stroke font function
+void drawString(const char* s, float x, float y, float scale)
 {
-    glRasterPos2f(x, y);
+    glPushMatrix();
+    glTranslatef(x, y, 0);
+    glScalef(scale, scale, 1);
+    glLineWidth(2.0f);
     for (const char* p = s; *p; ++p)
-        glutBitmapCharacter(GLUT_BITMAP_9_BY_15, *p); // Larger font
+    {
+        glutStrokeCharacter(GLUT_STROKE_MONO_ROMAN, *p);
+    }
+    glPopMatrix();
 }
 
 void drawCircle(float cx, float cy, float r, int seg = 32)
@@ -188,15 +186,11 @@ void setGameMessage(const std::string& msg, float duration = 2.0f)
     gameMessageTimer = duration;
 }
 
-// ---------- Sound (MODIFIED) ----------
-
-// NEW: Function to update music volume
+// ---------- Sound ----------
 void updateMusicVolume()
 {
-    // MCI volume is 0-1000, our slider is 0-100
     int mciVol = musicVolume * 10;
     std::string cmd = "setaudio music volume to " + std::to_string(mciVol);
-    // MODIFIED: Removed TEXT() macro from around the variable
     mciSendString(cmd.c_str(), NULL, 0, NULL);
 }
 
@@ -204,15 +198,12 @@ void playBackgroundMusic()
 {
     mciSendString(TEXT("open \"Dispatch - Gristle.wav\" type mpegvideo alias music"), NULL, 0, NULL);
     mciSendString(TEXT("play music repeat"), NULL, 0, NULL);
-    // Set initial volume
     updateMusicVolume();
 }
 
 void playSFX(const char* file)
 {
-    // MODIFIED: SFX can be disabled
     if (!sfxEnabled) return;
-    // MODIFIED: Removed TEXT() macro from around the variable
     PlaySound(file, NULL, SND_FILENAME | SND_ASYNC);
 }
 
@@ -459,7 +450,6 @@ void makeDemoMap()
     player.moving = false;
 }
 
-// NEW: Game Reset Function
 void resetGame()
 {
     score = combo = maxCombo = 0;
@@ -473,7 +463,6 @@ void resetGame()
     gameInProgress = true;
     setGameMessage("New Game Started!", 1.5f);
 
-    // Stop and restart music
     mciSendString(TEXT("stop music"), NULL, 0, NULL);
     mciSendString(TEXT("close music"), NULL, 0, NULL);
     playBackgroundMusic();
@@ -561,10 +550,7 @@ void attemptMoveToHighlightedNeighbor()
     currentSequenceIsFast = false;
     NodeType targetType = nodes[neighbor].type;
 
-    if (nodes[neighbor].isFinal)
-    {
-        setGameMessage("Final Sequence!");
-    }
+    if (nodes[neighbor].isFinal) setGameMessage("Final Sequence!");
     else if (targetType == NODE_HAZARD)
     {
         currentSequenceIsHazard = true;
@@ -575,10 +561,7 @@ void attemptMoveToHighlightedNeighbor()
         currentSequenceIsFast = true;
         setGameMessage("FAST! Timing is halved!");
     }
-    else if (targetType == NODE_REWARD)
-    {
-        setGameMessage("Reward Node!");
-    }
+    else if (targetType == NODE_REWARD) setGameMessage("Reward Node!");
 
     std::uniform_int_distribution<int> arrowDist(0, 3);
     std::uniform_int_distribution<int> lenDist(0, 2);
@@ -619,10 +602,7 @@ void updateGame()
     if (gameMessageTimer > 0.0f)
     {
         gameMessageTimer -= 0.016f;
-        if (gameMessageTimer <= 0.0f)
-        {
-            gameMessage = "";
-        }
+        if (gameMessageTimer <= 0.0f) gameMessage = "";
     }
 
     if (!finalNodeSpawned && !gameWon)
@@ -664,7 +644,7 @@ void updateGame()
             if (player.moveTo >= 0 && player.moveTo < (int)nodes.size() && nodes[player.moveTo].isFinal)
             {
                 gameWon = true;
-                setGameMessage("VICTORY! Press R to restart.", 1000.0f);
+                setGameMessage("VICTORY! Press SPACE to restart.", 1000.0f); // MODIFIED
                 playSFX("Success.wav");
             }
         }
@@ -675,39 +655,13 @@ void updateGame()
             player.y = nodes[player.moveFrom].y * (1.0f - s) + nodes[player.moveTo].y * s;
         }
     }
-
-    // No glutPostRedisplay() here, moved to timerFunc
 }
 
 // ---------- Input ----------
-void specialKeys(int key, int x, int y)
+
+// NEW: Refactored sequence input handler
+void handleArrowPress(ArrowDir pressed)
 {
-    // MODIFIED: Only handle input if in playing state
-    if (currentGameState != STATE_PLAYING) return;
-    if (gameWon) return;
-
-    if (!inSequence || !stepWaitingForInput)
-    {
-        if (key == GLUT_KEY_LEFT || key == GLUT_KEY_DOWN)
-        {
-            player.highlightedNeighbor--;
-            clampHighlightedNeighbor();
-        }
-        if (key == GLUT_KEY_RIGHT || key == GLUT_KEY_UP)
-        {
-            player.highlightedNeighbor++;
-            clampHighlightedNeighbor();
-        }
-        glutPostRedisplay();
-        return;
-    }
-
-    ArrowDir pressed;
-    if (key == GLUT_KEY_UP) pressed = ARROW_UP;
-    else if (key == GLUT_KEY_DOWN) pressed = ARROW_DOWN;
-    else if (key == GLUT_KEY_LEFT) pressed = ARROW_LEFT;
-    else pressed = ARROW_RIGHT;
-
     if (seqIdx >= (int)sequence.size()) return;
 
     int dt = glutGet(GLUT_ELAPSED_TIME) - stepStartTimeMs;
@@ -752,15 +706,9 @@ void specialKeys(int key, int x, int y)
                 playSFX("Success.wav");
             }
         }
-        else
-        {
-            sequenceFailed = true;
-        }
+        else sequenceFailed = true;
     }
-    else
-    {
-        sequenceFailed = true;
-    }
+    else sequenceFailed = true;
 
     if (sequenceFailed)
     {
@@ -819,9 +767,96 @@ void specialKeys(int key, int x, int y)
     glutPostRedisplay();
 }
 
+
+void specialKeys(int key, int x, int y)
+{
+    // --- Menu State Keys ---
+    if (currentGameState == STATE_MENU)
+    {
+        std::vector<std::string> menuItems;
+        if (gameInProgress) menuItems = { "Resume Game", "Music Volume", "SFX", "Restart Game", "Quit" };
+        else menuItems = { "New Game", "Music Volume", "SFX", "Quit" };
+        int numItems = (int)menuItems.size();
+
+        if (key == GLUT_KEY_UP)
+        {
+            menuSelectedItem = (menuSelectedItem - 1 + numItems) % numItems;
+            playSFX("Select.wav");
+        }
+        else if (key == GLUT_KEY_DOWN)
+        {
+            menuSelectedItem = (menuSelectedItem + 1) % numItems;
+            playSFX("Select.wav");
+        }
+        else if (key == GLUT_KEY_LEFT)
+        {
+            const std::string& item = menuItems[menuSelectedItem];
+            if (item == "Music Volume")
+            {
+                musicVolume = std::max(0, musicVolume - 10);
+                updateMusicVolume();
+                playSFX("Select.wav");
+            }
+            else if (item == "SFX")
+            {
+                sfxEnabled = !sfxEnabled;
+                playSFX("Select.wav");
+            }
+        }
+        else if (key == GLUT_KEY_RIGHT)
+        {
+            const std::string& item = menuItems[menuSelectedItem];
+            if (item == "Music Volume")
+            {
+                musicVolume = std::min(100, musicVolume + 10);
+                updateMusicVolume();
+                playSFX("Select.wav");
+            }
+            else if (item == "SFX")
+            {
+                sfxEnabled = !sfxEnabled;
+                playSFX("Select.wav");
+            }
+        }
+        glutPostRedisplay();
+        return;
+    }
+
+    // --- Playing State Keys ---
+    if (currentGameState != STATE_PLAYING) return;
+    if (gameWon) return;
+
+    if (inSequence && stepWaitingForInput)
+    {
+        ArrowDir pressed;
+        if (key == GLUT_KEY_UP) pressed = ARROW_UP;
+        else if (key == GLUT_KEY_DOWN) pressed = ARROW_DOWN;
+        else if (key == GLUT_KEY_LEFT) pressed = ARROW_LEFT;
+        else if (key == GLUT_KEY_RIGHT) pressed = ARROW_RIGHT;
+        else return; // Not an arrow key
+        handleArrowPress(pressed);
+        return;
+    }
+    
+    if (!inSequence)
+    {
+        if (key == GLUT_KEY_LEFT) // Also allow DOWN for left-nav
+        {
+            player.highlightedNeighbor--;
+            clampHighlightedNeighbor();
+        }
+        if (key == GLUT_KEY_RIGHT) // Also allow UP for right-nav
+        {
+            player.highlightedNeighbor++;
+            clampHighlightedNeighbor();
+        }
+        glutPostRedisplay();
+        return;
+    }
+}
+
 void keyboard(unsigned char k, int x, int y)
 {
-    // --- Global Keys ---
     if (k == 27) // ESC key
     {
         if (currentGameState == STATE_PLAYING)
@@ -832,33 +867,18 @@ void keyboard(unsigned char k, int x, int y)
         else if (currentGameState == STATE_MENU && gameInProgress)
         {
             currentGameState = STATE_PLAYING;
-            setGameMessage("", 0.0f); // Clear message
+            setGameMessage("", 0.0f);
         }
         glutPostRedisplay();
         return;
     }
 
-    // --- Menu State Keys ---
     if (currentGameState == STATE_MENU)
     {
         std::vector<std::string> menuItems;
-        if (gameInProgress)
-        {
-            menuItems.push_back("Resume Game");
-            menuItems.push_back("Music Volume");
-            menuItems.push_back("SFX");
-            menuItems.push_back("Restart Game");
-            menuItems.push_back("Quit");
-        }
-        else
-        {
-            menuItems.push_back("New Game");
-            menuItems.push_back("Music Volume");
-            menuItems.push_back("SFX");
-            menuItems.push_back("Quit");
-        }
+        if (gameInProgress) menuItems = { "Resume Game", "Music Volume", "SFX", "Restart Game", "Quit" };
+        else menuItems = { "New Game", "Music Volume", "SFX", "Quit" };
         int numItems = (int)menuItems.size();
-
 
         if (k == 'w' || k == 'W') // Up
         {
@@ -900,7 +920,8 @@ void keyboard(unsigned char k, int x, int y)
                 playSFX("Select.wav");
             }
         }
-        else if (k == 'e' || k == 'E' || k == 13) // Select (E or Enter)
+        // MODIFIED: Use Space or Enter to select, removed 'e'
+        else if (k == ' ' || k == 13)
         {
             const std::string& item = menuItems[menuSelectedItem];
             playSFX("Engage.wav");
@@ -919,33 +940,40 @@ void keyboard(unsigned char k, int x, int y)
                 resetGame();
                 currentGameState = STATE_PLAYING;
             }
-            else if (item == "Quit")
-            {
-                exit(0);
-            }
+            else if (item == "Quit") exit(0);
         }
         glutPostRedisplay();
         return;
     }
 
-    // --- Playing State Keys ---
     if (currentGameState == STATE_PLAYING)
     {
         if (gameWon)
         {
-            if (k == 'r' || k == 'R') resetGame();
+            // MODIFIED: Use Space or Enter to restart
+            if (k == ' ' || k == 13) resetGame();
             return;
         }
 
-        if (k == 'r' || k == 'R')
+        // MODIFIED: Removed 'r' key
+        
+        // MODIFIED: Handle WASD for sequence
+        if (inSequence && stepWaitingForInput)
         {
-            resetGame();
+            ArrowDir pressed;
+            if (k == 'w' || k == 'W') pressed = ARROW_UP;
+            else if (k == 's' || k == 'S') pressed = ARROW_DOWN;
+            else if (k == 'a' || k == 'A') pressed = ARROW_LEFT;
+            else if (k == 'd' || k == 'D') pressed = ARROW_RIGHT;
+            else return; // Not a sequence key
+            handleArrowPress(pressed);
             return;
         }
 
-        if (k == 'e' || k == 'E')
+        // MODIFIED: Use Space or Enter to act, removed 'e'
+        if (k == ' ' || k == 13)
         {
-            if (inSequence)
+            if (inSequence) // Allow cancelling
             {
                 inSequence = false;
                 sequence.clear();
@@ -958,6 +986,7 @@ void keyboard(unsigned char k, int x, int y)
                 attemptMoveToHighlightedNeighbor();
             glutPostRedisplay();
         }
+        
         if (!inSequence)
         {
             if (k == 'a' || k == 'A')
@@ -1002,16 +1031,29 @@ void drawAvatar(float x, float y)
 // ---------- Draw Map ----------
 void drawBackgroundGrid()
 {
+    float time = glutGet(GLUT_ELAPSED_TIME) / 5000.0f;
+    
     glColor4f(0.10f, 0.12f, 0.16f, 1.0f);
     glLineWidth(1.0f);
     glBegin(GL_LINES);
-    for (float x = -1.0f; x <= 1.01f; x += 0.06f)
+    for (float x = -2.0f; x <= 2.01f; x += 0.12f)
     {
         glVertex2f(x, -1.0f); glVertex2f(x, 1.0f);
     }
-    for (float y = -1.0f; y <= 1.01f; y += 0.06f)
+    float y_offset_far = fmod(time * 0.1f, 0.12f);
+    for (float y = -1.0f; y <= 1.01f; y += 0.12f)
     {
-        glVertex2f(-1.0f, y); glVertex2f(1.0f, y);
+        glVertex2f(-screenAspect, y + y_offset_far); glVertex2f(screenAspect, y + y_offset_far);
+    }
+    glEnd();
+
+    glColor4f(0.15f, 0.18f, 0.24f, 1.0f);
+    glLineWidth(1.0f);
+    glBegin(GL_LINES);
+    float y_offset_near = fmod(time * 0.3f, 0.12f);
+    for (float y = -1.0f; y <= 1.01f; y += 0.12f)
+    {
+        glVertex2f(-screenAspect, y + y_offset_near - 0.06f); glVertex2f(screenAspect, y + y_offset_near - 0.06f);
     }
     glEnd();
 }
@@ -1044,7 +1086,7 @@ void drawMap()
             glColor3f(0.95f, 0.85f, 0.2f);
             drawCircle(x, y, NODE_RADIUS_VISITED);
             glColor3f(0.05f, 0.05f, 0.05f);
-            drawString("FINISH", x - 0.035f, y - 0.005f);
+            drawString("FINISH", x - 0.07f, y - 0.01f, FONT_SCALE_LARGE);
             continue;
         }
 
@@ -1103,7 +1145,7 @@ void drawSequenceUI()
     glColor3f(0.15f, 0.5f, 0.9f);
     drawQuad(cx - w / 2, cy + h / 2 - 0.03f, cx + w / 2, cy + h / 2);
     glColor3f(1, 1, 1);
-    drawString("BUILD PATH", cx - w / 2 + 0.02f, cy + h / 2 - 0.02f);
+    drawString("BUILD PATH", cx - 0.15f, cy + h / 2 - 0.022f, FONT_SCALE_LARGE);
 
     float startX = cx + ARROW_UI_START_X;
     float arrowY = cy - 0.01f;
@@ -1111,6 +1153,13 @@ void drawSequenceUI()
     {
         float px = startX + i * ARROW_UI_X_SPACING;
         float animScale = 1.0f + 0.12f * sequence[i].displayAnim;
+        
+        if (i == seqIdx && stepWaitingForInput)
+        {
+            float pulse = 1.0f + 0.1f * (1.0f + sinf(glutGet(GLUT_ELAPSED_TIME) * 0.008f));
+            animScale *= pulse;
+        }
+
         drawArrowShape(px, arrowY, sequence[i].dir, sequence[i].result, ARROW_DISPLAY_SIZE, animScale);
     }
 
@@ -1145,174 +1194,172 @@ void drawSequenceUI()
     }
 }
 
-// ---------- HUD & Menu ----------
+// ---------- HUD & Menu (MODIFIED) ----------
 void displayHUD()
 {
+    float hudX = -screenAspect + 0.05f;
+    float hudY = 0.95f;
+    float lineH = 0.05f;
+
     glColor3f(1, 1, 1);
-    float y = HUD_POS_Y;
-    drawString("Controls: A/D or Left/Right | E: move | R: restart | ESC: menu", HUD_POS_X, y);
-    y -= HUD_LINE_SPACING;
+    drawString("Controls: A/D/Arrows | SPACE: move | ESC: menu", hudX, hudY, FONT_SCALE_MEDIUM);
+    hudY -= lineH;
 
     std::string scoreText = "Score: " + std::to_string(score) +
         " | Combo: " + std::to_string(combo) +
         " | Max Combo: " + std::to_string(maxCombo);
-    drawString(scoreText.c_str(), HUD_POS_X, y);
-    y -= HUD_LINE_SPACING;
+    drawString(scoreText.c_str(), hudX, hudY, FONT_SCALE_MEDIUM);
+    hudY -= lineH;
 
     if (inSequence)
-        drawString("Sequence active: press arrows!", HUD_POS_X, y);
+        drawString("Sequence active: (WASD / Arrows)", hudX, hudY, FONT_SCALE_MEDIUM);
     if (player.moving)
-        drawString("Moving...", 0.75f, 0.9f);
+        drawString("Moving...", 0.75f, 0.9f, FONT_SCALE_MEDIUM);
 
     if (gameMessageTimer > 0.0f)
     {
         glColor3f(1.0f, 0.9f, 0.2f);
-        drawString(gameMessage.c_str(), -0.2f, 0.0f);
+        drawString(gameMessage.c_str(), -0.6f, 0.0f, FONT_SCALE_LARGE);
     }
-
     if (gameWon)
     {
         glColor3f(0.2f, 1.0f, 0.3f);
-        drawString("VICTORY! Press R to restart", -0.12f, 0.1f);
+        // MODIFIED: Updated restart text
+        drawString("VICTORY! Press SPACE to restart", -0.7f, 0.1f, FONT_SCALE_LARGE);
     }
 
     // --- Legend ---
-    float legendX = -0.95f;
-    float legendY = -0.65f;
-    float legendSpacing = 0.05f;
+    float legendX = -screenAspect + 0.05f;
+    float legendY = -0.50f;
+    float legendSpacing = 0.06f;
     float legendIconSize = 0.02f;
-    float legendTextX = legendX + 0.04f;
+    float legendTextX = legendX + 0.05f;
+    float textYOff = -0.01f;
 
     glColor3f(1.0f, 1.0f, 1.0f);
-    drawString("Legend:", legendX, legendY);
-    legendY -= legendSpacing;
+    drawString("Legend:", legendX, legendY, FONT_SCALE_LARGE);
+    legendY -= (legendSpacing * 1.2f);
 
     drawAvatarShape(legendX + legendIconSize * 0.5f, legendY, legendIconSize * 0.7f);
     glColor3f(1.0f, 1.0f, 1.0f);
-    drawString("You", legendTextX, legendY - 0.005f);
+    drawString("You", legendTextX, legendY + textYOff, FONT_SCALE_MEDIUM);
     legendY -= legendSpacing;
 
     glColor3f(0.95f, 0.95f, 0.95f);
     drawCircle(legendX + legendIconSize * 0.5f, legendY, NODE_RADIUS_UNVISITED * 0.5f);
-    drawString("Unvisited Node", legendTextX, legendY - 0.005f);
+    drawString("Unvisited Node", legendTextX, legendY + textYOff, FONT_SCALE_MEDIUM);
     legendY -= legendSpacing;
 
     glColor3f(0.22f, 0.45f, 0.85f);
     drawCircle(legendX + legendIconSize * 0.5f, legendY, NODE_RADIUS_VISITED * 0.5f);
-    drawString("Visited Node", legendTextX, legendY - 0.005f);
+    drawString("Visited Node", legendTextX, legendY + textYOff, FONT_SCALE_MEDIUM);
     legendY -= legendSpacing;
 
     glColor3f(0.4f, 1.0f, 0.5f);
     drawRing(legendX + legendIconSize * 0.5f, legendY, NODE_RING_HIGHLIGHT_OUT * 0.4f, NODE_RING_HIGHLIGHT_IN * 0.4f);
     glColor3f(1.0f, 1.0f, 1.0f);
-    drawString("Highlighted Target", legendTextX, legendY - 0.005f);
+    drawString("Highlighted Target", legendTextX, legendY + textYOff, FONT_SCALE_MEDIUM);
     legendY -= legendSpacing;
 
     glColor3f(1.0f, 0.9f, 0.3f);
     drawCircle(legendX + legendIconSize * 0.5f, legendY, NODE_RADIUS_REWARD * 1.5f);
     glColor3f(1.0f, 1.0f, 1.0f);
-    drawString("Reward Node", legendTextX, legendY - 0.005f);
+    drawString("Reward Node", legendTextX, legendY + textYOff, FONT_SCALE_MEDIUM);
     legendY -= legendSpacing;
 
     glColor3f(1.0f, 0.3f, 0.3f);
     drawCircle(legendX + legendIconSize * 0.5f, legendY, NODE_RADIUS_UNVISITED * 0.5f);
     glColor3f(1.0f, 1.0f, 1.0f);
-    drawString("Hazard Node (Good/Perfect only!)", legendTextX, legendY - 0.005f);
+    drawString("Hazard Node (Good/Perfect only!)", legendTextX, legendY + textYOff, FONT_SCALE_MEDIUM);
     legendY -= legendSpacing;
 
     glColor3f(1.0f, 0.8f, 0.2f);
     drawCircle(legendX + legendIconSize * 0.5f, legendY, NODE_RADIUS_UNVISITED * 0.5f);
     glColor3f(1.0f, 1.0f, 1.0f);
-    drawString("Fast Node (Timing halved!)", legendTextX, legendY - 0.005f);
+    drawString("Fast Node (Timing halved!)", legendTextX, legendY + textYOff, FONT_SCALE_MEDIUM);
     legendY -= legendSpacing;
 }
 
-// NEW: Draw Menu
 void drawMenu()
 {
-    // Draw a semi-transparent overlay
     glColor4f(0.0f, 0.0f, 0.0f, 0.8f);
-    drawQuad(-2.0f, -2.0f, 2.0f, 2.0f); // Cover whole screen
+    drawQuad(-screenAspect, -1.0f, screenAspect, 1.0f);
 
-    // --- Draw Menu Items ---
-    float cx = 0.0f;
-    float cy = 0.3f;
-    float menuSpacing = 0.12f;
+    float cx = -0.7f;
+    float cy = 0.5f;
+    float menuSpacing = 0.15f;
 
     glColor3f(1.0f, 1.0f, 1.0f);
-    drawString("THIS PATCHED", cx - 0.18f, cy + 0.15f); // Title
+    drawString("This Patched", cx, cy, FONT_SCALE_XLARGE);
+    cy -= menuSpacing * 1.5f;
     
     std::vector<std::string> menuItems;
-    if (gameInProgress)
-    {
-        menuItems.push_back("Resume Game");
-        menuItems.push_back("Music Volume");
-        menuItems.push_back("SFX");
-        menuItems.push_back("Restart Game");
-        menuItems.push_back("Quit");
-    }
-    else
-    {
-        menuItems.push_back("New Game");
-        menuItems.push_back("Music Volume");
-        menuItems.push_back("SFX");
-        menuItems.push_back("Quit");
-    }
+    if (gameInProgress) menuItems = { "Resume Game", "Music Volume", "SFX", "Restart Game", "Quit" };
+    else menuItems = { "New Game", "Music Volume", "SFX", "Quit" };
 
     for (size_t i = 0; i < menuItems.size(); ++i)
     {
         float y = cy - i * menuSpacing;
         
-        // Draw selector
         if (i == menuSelectedItem)
         {
             glColor3f(0.1f, 1.0f, 0.2f);
-            drawArrowShape(cx - 0.3f, y + 0.01f, ARROW_RIGHT, 0, 0.05f);
+            drawArrowShape(cx - 0.05f, y + 0.02f, ARROW_RIGHT, 0, 0.05f);
         }
-        else
-        {
-            glColor3f(1.0f, 1.0f, 1.0f);
-        }
+        else glColor3f(1.0f, 1.0f, 1.0f);
 
-        // Draw item text
-        std::string itemText = menuItems[i];
-        if (itemText == "Music Volume")
-        {
-            itemText = std::string("Music Volume: < ") + std::to_string(musicVolume) + " >";
-        }
-        else if (itemText == "SFX")
-        {
-            itemText = std::string("SFX: < ") + (sfxEnabled ? "ON" : "OFF") + " >";
-        }
+       std::string itemText = menuItems[i];
+        if (itemText == "Music Volume") itemText = std::string("Music Volume: < ") + std::to_string(musicVolume) + " >";
+        else if (itemText == "SFX") itemText = std::string("SFX: < ") + (sfxEnabled ? "ON" : "OFF") + " >";
 
-        drawString(itemText.c_str(), cx - 0.25f, y);
+        drawString(itemText.c_str(), cx, y, FONT_SCALE_LARGE);
     }
 
     glColor3f(0.8f, 0.8f, 0.8f);
-    drawString("Controls: W/S to navigate, A/D to change, E to select", cx - 0.4f, cy - (menuItems.size() + 1) * menuSpacing);
+    // MODIFIED: Updated controls text
+    drawString("Controls: W/S/Arrows to navigate, A/D/Arrows to change, SPACE/Enter to select", cx - 0.3f, cy - (menuItems.size() + 1) * menuSpacing, FONT_SCALE_MEDIUM);
 }
 
-// ---------- Draw Game (NEW) ----------
-// Encapsulates all game-world drawing
+// ---------- Draw Game ----------
 void drawGame()
 {
+    glClearColor(0.06f, 0.08f, 0.12f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glLoadIdentity();
+
     drawMap();
     drawAvatar(player.x, player.y);
     displayHUD();
     if (inSequence)
         drawSequenceUI();
+
+    glMatrixMode(GL_PROJECTION);
+    glPushMatrix();
+    glLoadIdentity();
+    glMatrixMode(GL_MODELVIEW);
+    glLoadIdentity();
+    
+    glBegin(GL_TRIANGLE_FAN);
+    glColor4f(0.0f, 0.0f, 0.0f, 0.0f);
+    glVertex2f(0.0f, 0.0f);
+    glColor4f(0.0f, 0.0f, 0.0f, 0.7f);
+    glVertex2f(-1.0f, -1.0f);
+    glVertex2f( 1.0f, -1.0f);
+    glVertex2f( 1.0f,  1.0f);
+    glVertex2f(-1.0f,  1.0f);
+    glVertex2f(-1.0f, -1.0f);
+    glEnd();
+    
+    glMatrixMode(GL_PROJECTION);
+    glPopMatrix();
+    glMatrixMode(GL_MODELVIEW);
 }
 
-// ---------- Display & Reshape (MODIFIED) ----------
+// ---------- Display & Reshape ----------
 void display()
 {
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-    glLoadIdentity();
-
-    // Draw the game world always
     drawGame();
 
-    // Draw the menu on top if we are in the menu state
     if (currentGameState == STATE_MENU)
     {
         drawMenu();
@@ -1330,6 +1377,9 @@ void reshape(int w, int h)
     glLoadIdentity();
     if (h == 0) h = 1;
     float asp = (float)w / (float)h;
+
+    screenAspect = asp; 
+
     if (asp >= 1.0f)
         glOrtho(-asp, asp, -1, 1, -1, 1);
     else
@@ -1338,16 +1388,14 @@ void reshape(int w, int h)
     glLoadIdentity();
 }
 
-// ---------- Timer (MODIFIED) ----------
+// ---------- Timer ----------
 void timerFunc(int)
 {
-    // Only update game logic if not paused
     if (currentGameState == STATE_PLAYING)
     {
         updateGame();
     }
     
-    // Always redisplay to keep menu responsive
     glutPostRedisplay();
     glutTimerFunc(16, timerFunc, 0);
 }
@@ -1356,27 +1404,42 @@ void timerFunc(int)
 int main(int argc, char** argv)
 {
     glutInit(&argc, argv);
-    glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGBA);
+    glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGBA | GLUT_MULTISAMPLE);
     glutInitWindowSize(windowW, windowH);
+    // MODIFIED: Window title
     glutCreateWindow("This Patched");
 
-    playBackgroundMusic(); // Play music (will play on menu)
+    try {
+        HWND hwnd = FindWindow(NULL, TEXT("This Patched"));
+        if (hwnd)
+        {
+            HICON hIcon = (HICON)LoadImage(NULL, TEXT("icon.ico"), IMAGE_ICON, 0, 0, LR_LOADFROMFILE | LR_DEFAULTSIZE);
+            if (hIcon)
+            {
+                SendMessage(hwnd, WM_SETICON, ICON_SMALL, (LPARAM)hIcon);
+                SendMessage(hwnd, WM_SETICON, ICON_BIG, (LPARAM)hIcon);
+            }
+        }
+    }
+    catch (...) {
+    }
+
+
+    playBackgroundMusic(); 
     glutDisplayFunc(display);
     glutKeyboardFunc(keyboard);
     glutSpecialFunc(specialKeys);
     glutReshapeFunc(reshape);
 
-    glClearColor(0.06f, 0.08f, 0.12f, 1.0f);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
+    glEnable(GL_LINE_SMOOTH);
+    
     uiTex = makeProceduralUITexture(256, 64);
     
-    // Don't call makeDemoMap here, player will start it from the menu
-    // We can call it to populate the background, but set gameInProgress = false
     makeDemoMap(); 
     gameInProgress = false; 
-    currentGameState = STATE_MENU; // Start on the menu
+    currentGameState = STATE_MENU; 
 
     glutTimerFunc(16, timerFunc, 0);
     glutMainLoop();
