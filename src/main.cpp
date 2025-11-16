@@ -1,7 +1,3 @@
-// node_sequence_v2.cpp
-// Improved Node Sequence Game
-// Requires FreeGLUT, WinMM for SFX
-
 #include <GL/freeglut.h>
 #include <windows.h>
 #include <mmsystem.h>
