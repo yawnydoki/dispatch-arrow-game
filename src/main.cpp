@@ -53,7 +53,7 @@ enum GameState
 {
     STATE_MENU,
     STATE_PLAYING
-    // STATE_VIEW_PASSWORDS removed
+    
 };
 
 enum ArrowDir
@@ -67,7 +67,7 @@ enum ArrowDir
 enum NodeType
 {
     NODE_NORMAL,
-    NODE_REWARD, // Now grants an extra life
+    NODE_REWARD, 
     NODE_HAZARD,
     NODE_FAST
 };
@@ -100,9 +100,9 @@ struct Node
     // Lock and Key system
     bool isLocked = false;
     bool isKey = false;
-    int keyNode = -1;       // If this is a lock, stores the ID of its key
-    int lockNode = -1;      // If this is a key, stores the ID of its lock
-    std::vector<ArrowDir> password; // Stores the password for this lock
+    int keyNode = -1;       // if this is a lock, stores the ID of its key
+    int lockNode = -1;      // if this is a key, stores the ID of its lock
+    std::vector<ArrowDir> password; // stores the password for this lock
 };
 
 struct Player
@@ -117,7 +117,7 @@ struct Player
     int moveStartTimeMs = 0;
 };
 
-// NEW: Particle System
+
 struct Particle
 {
     float x, y, vx, vy;
@@ -128,7 +128,7 @@ struct Particle
 // ---------- Globals ----------
 std::vector<Node> nodes;
 Player player;
-std::vector<Particle> particles; // NEW: Particle container
+std::vector<Particle> particles; 
 
 std::vector<Arrow> sequence;
 int seqIdx = 0;
@@ -137,7 +137,7 @@ bool stepWaitingForInput = false;
 int stepStartTimeMs = 0;
 
 int playerLives = STARTING_LIVES;
-int currentLevel = 1; // NEW: Level tracking
+int currentLevel = 1; 
 
 int windowW = 1920, windowH = 1080;
 GLuint uiTex = 0;
@@ -209,18 +209,17 @@ void drawRing(float cx, float cy, float ro, float ri, int seg = 32)
     glEnd();
 }
 
-// NEW: Helper function to draw the energy icon for lives
 void drawEnergyIcon(float cx, float cy, float radius, float pulseAlpha)
 {
-    // Draw the pulsing outer glow
+    // the pulsing outer glow
     glColor4f(0.2f, 0.8f, 1.0f, 0.5f * pulseAlpha);
     drawCircle(cx, cy, radius * (1.0f + 0.3f * pulseAlpha));
     
-    // Draw the solid inner core
+    // solid inner core
     glColor3f(0.2f, 0.8f, 1.0f);
     drawCircle(cx, cy, radius * 0.6f);
     
-    // Draw a brighter center
+    // brighter center
     glColor3f(0.8f, 1.0f, 1.0f);
     drawCircle(cx, cy, radius * 0.2f);
 }
@@ -293,7 +292,7 @@ GLuint makeProceduralUITexture(int w = 256, int h = 64)
     return tex;
 }
 
-// ---------- NEW: Particle System ----------
+// ----------Particle System ----------
 void spawnParticles(int count, float x, float y, float initialSpeed, float r, float g, float b)
 {
     std::uniform_real_distribution<float> angleDist(0, 2.0f * 3.1415926f);
@@ -459,7 +458,7 @@ void drawNodeIcon(NodeIcon icon, float x, float y)
     }
 }
 
-// ---------- Map (REFACTORED) ----------
+// ---------- Map ----------
 void makeMap(int numNodes, int minLinks, int maxLinks, int numLocks)
 {
     nodes.clear();
@@ -583,7 +582,7 @@ void makeMap(int numNodes, int minLinks, int maxLinks, int numLocks)
                 continue;
             if (edgeWouldCross(i, j))
             {
-                if (attempts % 8 != 0) // Occasionally allow crossing
+                if (attempts % 8 != 0) // occasionally allow crossing
                     continue;
             }
             nodes[i].links.push_back(j);
@@ -639,7 +638,7 @@ void makeMap(int numNodes, int minLinks, int maxLinks, int numLocks)
                     }
                 }
             }
-            if (!connected) // Force connection if non-crossing fails
+            if (!connected) 
             {
                 for (int a = 0; a < N && !connected; ++a)
                 {
@@ -662,14 +661,14 @@ void makeMap(int numNodes, int minLinks, int maxLinks, int numLocks)
         }
     }
 
-    // --- Add Lock and Key (REFACTORED) ---
+    // --- Lock and Key  ---
     for (int i = 0; i < numLocks; ++i)
     {
         int lockNode = nodeDist(rng);
         int keyNode = nodeDist(rng);
         
         int attempts = 0;
-        // Make sure we don't pick the same node, or special nodes, or existing lock/key nodes
+        
         while (attempts < 100 && (lockNode == keyNode || 
                nodes[lockNode].type != NODE_NORMAL || nodes[keyNode].type != NODE_NORMAL ||
                nodes[lockNode].isLocked || nodes[lockNode].isKey ||
@@ -692,7 +691,7 @@ void makeMap(int numNodes, int minLinks, int maxLinks, int numLocks)
             nodes[lockNode].password.push_back((ArrowDir)arrowDist(rng));
         }
     }
-    // --- End ---
+
 
     finalNodeSpawned = false;
     gameWon = false;
@@ -1254,7 +1253,7 @@ void specialKeys(int key, int x, int y)
         if (isGameOver)
             menuItems = { "New Game", "Quit" };
         else if (gameInProgress)
-            menuItems = { "Resume Game", "Music Volume", "SFX", "Restart Game", "Quit" }; // "View Passwords" removed
+            menuItems = { "Resume Game", "Music Volume", "SFX", "Restart Game", "Quit" };
         else
             menuItems = { "New Game", "Music Volume", "SFX", "Quit" };
 
@@ -1404,7 +1403,7 @@ void keyboard(unsigned char k, int x, int y)
         if (isGameOver)
             menuItems = { "New Game", "Quit" };
         else if (gameInProgress)
-            menuItems = { "Resume Game", "Music Volume", "SFX", "Restart Game", "Quit" }; // "View Passwords" removed
+            menuItems = { "Resume Game", "Music Volume", "SFX", "Restart Game", "Quit" }; 
         else
             menuItems = { "New Game", "Music Volume", "SFX", "Quit" };
 
@@ -1606,7 +1605,6 @@ void keyboard(unsigned char k, int x, int y)
                 playSFX("Select.wav");
                 glutPostRedisplay();
             }
-            // 'v' key logic removed here
         }
     }
 }
@@ -1943,7 +1941,6 @@ void displayHUD()
     drawString(levelText.c_str(), hudX, hudY, FONT_SCALE_LARGE);
     hudY -= lineH;
 
-    // --- REPLACED LIVES TEXT WITH ENERGY ICONS ---
     drawString("Energy:", hudX, hudY, FONT_SCALE_LARGE);
     float energyX = hudX + 0.22f;
     float energyRadius = 0.02f;
@@ -1953,7 +1950,6 @@ void displayHUD()
     {
         drawEnergyIcon(energyX + i * energySpacing, hudY + 0.015f, energyRadius, pulse);
     }
-    // --- END REPLACEMENT ---
     
     hudY -= lineH;
 
@@ -2040,8 +2036,6 @@ void displayHUD()
     legendY -= legendSpacing;
 }
 
-// Removed drawPasswordScreen() function
-
 void drawMenu()
 {
     glColor4f(0.0f, 0.0f, 0.0f, 0.8f);
@@ -2063,7 +2057,7 @@ void drawMenu()
     }
     else if (gameInProgress)
     {
-        menuItems = { "Resume Game", "Music Volume", "SFX", "Restart Game", "Quit" }; // "View Passwords" removed
+        menuItems = { "Resume Game", "Music Volume", "SFX", "Restart Game", "Quit" };
     }
     else
     {
@@ -2108,7 +2102,7 @@ void drawGame()
     glLoadIdentity();
 
     drawMap();
-    drawParticles(); // NEW: Draw particles
+    drawParticles(); 
     drawAvatar(player.x, player.y);
     displayHUD();
 
@@ -2149,8 +2143,6 @@ void display()
     {
         drawMenu();
     }
-    // Removed block for STATE_VIEW_PASSWORDS
-    
     glutSwapBuffers();
 }
 
