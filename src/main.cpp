@@ -507,6 +507,17 @@ void drawNodeIcon(NodeIcon icon, float x, float y)
     }
 }
 
+// ---------- Helper to get consistent Menu Items ----------
+std::vector<std::string> getMenuItems()
+{
+    if (isGameOver)
+        return { "New Game", "Codex", "Quit" };
+    else if (gameInProgress)
+        return { "Resume Game", "Restart Game", "Codex", "Music Volume", "SFX", "Quit" };
+    else
+        return { "New Game", "Codex", "Music Volume", "SFX", "Quit" };
+}
+
 // ---------- Map ----------
 void makeMap(int numNodes, int minLinks, int maxLinks, int numLocks)
 {
@@ -715,17 +726,60 @@ void makeMap(int numNodes, int minLinks, int maxLinks, int numLocks)
         int keyNode = nodeDist(rng);
         int attempts = 0;
         
-        while (attempts < 100 && (lockNode == keyNode || 
-            nodes[lockNode].type != NODE_NORMAL || nodes[keyNode].type != NODE_NORMAL ||
-            nodes[lockNode].isLocked || nodes[lockNode].isKey ||
-            nodes[keyNode].isLocked || nodes[keyNode].isKey))
+        bool validLocation = false;
+
+        while (attempts < 100)
         {
             lockNode = nodeDist(rng);
             keyNode = nodeDist(rng);
+            
+            // Basic validity
+            if (lockNode == keyNode || 
+                nodes[lockNode].type != NODE_NORMAL || nodes[keyNode].type != NODE_NORMAL ||
+                nodes[lockNode].isLocked || nodes[lockNode].isKey ||
+                nodes[keyNode].isLocked || nodes[keyNode].isKey)
+            {
+                attempts++;
+                continue;
+            }
+
+            // SOFTLOCK CHECK:
+            // Check if the graph is still connected if we treat 'lockNode' as a wall.
+            // We run a BFS starting from a node that isn't 'lockNode'.
+            int startNode = (lockNode == 0) ? 1 : 0;
+            std::vector<bool> visited(N, false);
+            std::vector<int> q;
+            q.push_back(startNode);
+            visited[startNode] = true;
+            
+            int visitedCount = 0;
+            size_t head = 0;
+            while(head < q.size())
+            {
+                int u = q[head++];
+                visitedCount++;
+                for(int v : nodes[u].links)
+                {
+                    if(v != lockNode && !visited[v])
+                    {
+                        visited[v] = true;
+                        q.push_back(v);
+                    }
+                }
+            }
+
+            // If visitedCount is (N - 1), it means everyone is connected except the lockNode.
+            // This ensures the key is accessible without passing through the lock.
+            if(visitedCount >= N - 1)
+            {
+                validLocation = true;
+                break; 
+            }
+
             attempts++;
         }
 
-        if(attempts >= 100) continue; 
+        if(!validLocation) continue; // Skip this lock if we couldn't find a safe spot
 
         nodes[lockNode].isLocked = true;
         nodes[lockNode].keyNode = keyNode;
@@ -970,12 +1024,16 @@ void attemptMoveToHighlightedNeighbor()
     std::uniform_int_distribution<int> arrowDist(0, 3);
     std::uniform_int_distribution<int> lenDist(0, 2);
     std::uniform_int_distribution<int> fakeRoll(0, 100); // For fake notes
-    int len = targetNode.isFinal ? 5 : (3 + lenDist(rng));
+    
+    // Base length + 1 extra arrow every 2 levels + Random variation
+    int baseLen = targetNode.isFinal ? 5 : 3;
+    int levelAdd = (currentLevel / 2); 
+    int len = baseLen + levelAdd + lenDist(rng);
 
 
     if (currentSequenceIsHazard)
     {
-        len = 3 + lenDist(rng) / 2; // Shorter 3-4 arrow sequences
+        len = 3 + lenDist(rng) / 2; // Shorter 3-4 arrow sequences for hazards
     }
  
 
@@ -1194,7 +1252,7 @@ void updateGame()
             if (player.moveTo >= 0 && player.moveTo < (int)nodes.size() && nodes[player.moveTo].isFinal)
             {
                 gameWon = true;
-        
+       
                 gameMessage = loreSnippets[currentLevel % loreSnippets.size()];
                 gameMessageTimer = 1000.0f; 
                 gameMessageMaxTimer = 1000.0f; 
@@ -1313,7 +1371,7 @@ void handleArrowPress(ArrowDir pressed)
 
     bool sequenceFailed = false;
 
-   
+    
     if (sequence[seqIdx].isFake)
     {
         sequenceFailed = true; // Pressing *anything* on a fake note is a fail
@@ -1386,7 +1444,7 @@ void handleArrowPress(ArrowDir pressed)
         seqIdx = 0;
         stepWaitingForInput = false;
         
-       
+        
         currentSequenceIsHazard = false;
         hazardSequencesRemaining = 0;
         totalHazardSequences = 0;
@@ -1427,7 +1485,7 @@ void handleArrowPress(ArrowDir pressed)
         {
             Node& target = nodes[player.targetNode];
 
-           
+            
             if (target.type == NODE_WARP && !target.visited) // Only trigger warp ONCE
             {
                 int numWarpLinks = 1 + (rng() % 2); // 1 or 2
@@ -1531,13 +1589,7 @@ void specialKeys(int key, int x, int y)
   
     if (currentGameState == STATE_MENU)
     {
-        std::vector<std::string> menuItems;
-        if (isGameOver)
-            menuItems = { "New Game", "Almanac", "Quit" };
-        else if (gameInProgress)
-            menuItems = { "Resume Game", "Music Volume", "SFX", "Almanac", "Restart Game", "Quit" };
-        else
-            menuItems = { "New Game", "Music Volume", "SFX", "Almanac", "Quit" };
+        std::vector<std::string> menuItems = getMenuItems();
 
         if (menuSelectedItem >= (int)menuItems.size())
             menuSelectedItem = 0;
@@ -1685,13 +1737,7 @@ void keyboard(unsigned char k, int x, int y)
 
     if (currentGameState == STATE_MENU)
     {
-        std::vector<std::string> menuItems;
-        if (isGameOver)
-            menuItems = { "New Game", "Almanac", "Quit" };
-        else if (gameInProgress)
-            menuItems = { "Resume Game", "Music Volume", "SFX", "Almanac", "Restart Game", "Quit" }; 
-        else
-            menuItems = { "New Game", "Music Volume", "SFX", "Almanac", "Quit" };
+        std::vector<std::string> menuItems = getMenuItems();
 
         if (menuSelectedItem >= (int)menuItems.size()) menuSelectedItem = 0;
         int numItems = (int)menuItems.size();
@@ -1745,7 +1791,7 @@ void keyboard(unsigned char k, int x, int y)
                 resetGame();
                 currentGameState = STATE_PLAYING;
             }
-            else if (item == "Almanac") { 
+            else if (item == "Codex") { 
                 currentGameState = STATE_ALMANAC;
             }
             else if (item == "Quit") {
@@ -1939,7 +1985,7 @@ void drawMap()
             bool isHighlightLink = (highlightedNodeIndex != -1) && (i == highlightedNodeIndex || j == highlightedNodeIndex) && !player.moving && !inSequence && !displayingPassword;
              
             bool isWarpLink = (nodes[i].isWarpNode || nodes[j].isWarpNode);
-           
+            
             if (isHighlightLink)
             {
                 glColor3f(0.4f * globalPulse, 1.0f * globalPulse, 0.5f * globalPulse);
@@ -2248,7 +2294,7 @@ void displayHUD()
 
     if (gameMessageTimer > 0.0f)
     {
-       
+        
         float alpha = std::min(1.0f, gameMessageTimer / 0.5f); // Fade out over last 0.5s
 
         if (gameWon)
@@ -2274,21 +2320,8 @@ void drawMenu()
     glColor3f(1.0f, 1.0f, 1.0f);
     drawString("THISPATCHED", cx, cy, FONT_SCALE_XLARGE);
     cy -= menuSpacing * 1.5f;
-
-    std::vector<std::string> menuItems;
-
-    if (isGameOver)
-    {
-        menuItems = { "New Game", "Almanac", "Quit" };
-    }
-    else if (gameInProgress)
-    {
-        menuItems = { "Resume Game", "Music Volume", "SFX", "Almanac", "Restart Game", "Quit" };
-    }
-    else
-    {
-        menuItems = { "New Game", "Music Volume", "SFX", "Almanac", "Quit" };
-    }
+    
+    std::vector<std::string> menuItems = getMenuItems();
 
     if (menuSelectedItem >= (int)menuItems.size())
     {
@@ -2335,7 +2368,7 @@ void drawAlmanac()
     glColor3f(0.9f, 0.2f, 0.2f); // Red title bar
     drawQuad(cx - w / 2, cy + h / 2 - 0.05f, cx + w / 2, cy + h / 2);
     glColor3f(1, 1, 1);
-    drawString("ALMANAC // SYSTEM TOOLS // NODE_IDENTIFIERS_v3.1", cx - 0.75f, cy + h / 2 - 0.035f, FONT_SCALE_LARGE);
+    drawString("CODEX // SYSTEM TOOLS // THISPATCHED", cx - 0.75f, cy + h / 2 - 0.035f, FONT_SCALE_LARGE);
 
     // Footer
     glColor3f(0.15f, 0.5f, 0.9f);
@@ -2396,7 +2429,7 @@ void drawAlmanac()
     drawCircle(legendCol2X + legendIconSize * 0.5f, legendY, NODE_RADIUS_UNVISITED * 0.6f);
     drawNodeIcon(ICON_HAZARD, legendCol2X + legendIconSize * 0.5f, legendY);
     glColor3f(1.0f, 1.0f, 1.0f);
-    drawString("Hazard Node (Multi-Seq)", legendCol2TextX, legendY + textYOff, FONT_SCALE_LARGE);
+    drawString("Hazard Node (!)", legendCol2TextX, legendY + textYOff, FONT_SCALE_LARGE);
     legendY -= legendSpacing;
 
     glColor3f(1.0f, 0.8f, 0.2f);
@@ -2419,7 +2452,7 @@ void drawAlmanac()
     drawArrowShape(legendCol2X + 0.1f, legendY, ARROW_LEFT, 0, 0.05f, 1.0f, true);
     drawArrowShape(legendCol2X + 0.18f, legendY, ARROW_RIGHT, 0, 0.05f, 1.0f, true);
     glColor3f(1.0f, 1.0f, 1.0f);
-    drawString("= FAKE NOTE! DO NOT PRESS!", legendCol2X + 0.25f, legendY - 0.01f, FONT_SCALE_LARGE);
+    drawString("= FAKE! DO NOT PRESS!", legendCol2X + 0.25f, legendY - 0.01f, FONT_SCALE_LARGE);
 }
 
 
@@ -2430,7 +2463,7 @@ void drawGame()
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     glLoadIdentity();
 
-   
+    
     if (screenShakeTimer > 0.0f)
     {
         float shakeAmt = screenShakeTimer * 0.08f;
