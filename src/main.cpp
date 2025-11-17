@@ -31,10 +31,14 @@ const float NODE_RING_HIGHLIGHT_OUT = 0.10f;
 const float NODE_RING_HIGHLIGHT_IN = 0.065f;
 const float NODE_RING_FINAL_OUT = 0.14f;
 const float NODE_RING_FINAL_IN = 0.09f;
+const float NODE_RING_KEY_PULSE_OUT = 0.11f;
+const float NODE_RING_KEY_PULSE_IN = 0.10f;
+
 
 const float PLAYER_AVATAR_RADIUS = 0.05f;
 const int PLAYER_AVATAR_SIDES = 6;
 const float PLAYER_AVATAR_SPIN_SPEED = 180.0f; // deg/sec
+const float PLAYER_AVATAR_TURN_SPEED = 0.2f; // 20% lerp per frame
 
 const float ARROW_DISPLAY_SIZE = 0.07f;
 const float ARROW_UI_X_SPACING = 0.12f;
@@ -52,8 +56,8 @@ const float PARTICLE_GRAVITY = -0.1f;
 enum GameState
 {
     STATE_MENU,
-    STATE_PLAYING
-    
+    STATE_PLAYING,
+    STATE_ALMANAC 
 };
 
 enum ArrowDir
@@ -69,7 +73,8 @@ enum NodeType
     NODE_NORMAL,
     NODE_REWARD, 
     NODE_HAZARD,
-    NODE_FAST
+    NODE_FAST,
+    NODE_WARP 
 };
 
 enum NodeIcon
@@ -79,7 +84,8 @@ enum NodeIcon
     ICON_HAZARD,
     ICON_FAST,
     ICON_KEY,
-    ICON_LOCK
+    ICON_LOCK,
+    ICON_WARP 
 };
 
 struct Arrow
@@ -87,6 +93,7 @@ struct Arrow
     ArrowDir dir;
     int result = 0;
     float displayAnim = 1.0f;
+    bool isFake = false; 
 };
 
 struct Node
@@ -100,9 +107,11 @@ struct Node
     // Lock and Key system
     bool isLocked = false;
     bool isKey = false;
-    int keyNode = -1;       // if this is a lock, stores the ID of its key
-    int lockNode = -1;      // if this is a key, stores the ID of its lock
-    std::vector<ArrowDir> password; // stores the password for this lock
+    int keyNode = -1;
+    int lockNode = -1;
+    std::vector<ArrowDir> password;
+    bool isTargetOfKey = false; 
+    bool isWarpNode = false; 
 };
 
 struct Player
@@ -115,6 +124,7 @@ struct Player
     int moveFrom = -1, moveTo = -1;
     float moveProgress = 0.0f;
     int moveStartTimeMs = 0;
+    float avatarAngle = 0.0f; 
 };
 
 
@@ -138,6 +148,10 @@ int stepStartTimeMs = 0;
 
 int playerLives = STARTING_LIVES;
 int currentLevel = 1; 
+
+// For multi-sequence hazard nodes
+int hazardSequencesRemaining = 0;
+int totalHazardSequences = 0;
 
 int windowW = 1920, windowH = 1080;
 GLuint uiTex = 0;
@@ -169,6 +183,11 @@ bool justRevealedPassword = false;
 
 std::map<int, std::vector<ArrowDir>> revealedPasswords;
 
+float screenShakeTimer = 0.0f; //  screen shake
+std::vector<std::string> loreSnippets; // end-of-level lore
+float gameMessageMaxTimer = 0.0f; //  message fading
+
+void generateNextHazardSequence();
 
 // ---------- Utility ----------
 
@@ -238,6 +257,7 @@ void setGameMessage(const std::string& msg, float duration = 2.0f)
 {
     gameMessage = msg;
     gameMessageTimer = duration;
+    gameMessageMaxTimer = duration; // store max duration for fading
 }
 
 // ---------- Sound ----------
@@ -318,23 +338,33 @@ void spawnParticles(int count, float x, float y, float initialSpeed, float r, fl
     }
 }
 
+
 void updateParticles(float dt)
 {
-    for (int i = (int)particles.size() - 1; i >= 0; --i)
+    for (size_t i = 0; i < particles.size(); )
     {
         Particle& p = particles[i];
         p.life -= dt;
+
         if (p.life <= 0)
         {
-            particles.erase(particles.begin() + i);
-            continue;
+            // FAST REMOVE (O(1)):
+            particles[i] = particles.back();
+            particles.pop_back();
+            
         }
+        else
+        {
+            // Physics Update
+            p.x += p.vx * dt;
+            p.y += p.vy * dt;
+            p.vy += PARTICLE_GRAVITY * dt;
+            p.vx *= PARTICLE_DRAG;
+            p.vy *= PARTICLE_DRAG;
 
-        p.x += p.vx * dt;
-        p.y += p.vy * dt;
-        p.vy += PARTICLE_GRAVITY * dt;
-        p.vx *= PARTICLE_DRAG;
-        p.vy *= PARTICLE_DRAG;
+            // Only increment if we didn't delete.
+            i++;
+        }
     }
 }
 
@@ -356,7 +386,7 @@ void drawParticles()
 }
 
 // ---------- Arrow Drawing ----------
-void drawArrowShape(float x, float y, ArrowDir dir, int result, float size = ARROW_DISPLAY_SIZE, float animScale = 1.0f)
+void drawArrowShape(float x, float y, ArrowDir dir, int result, float size = ARROW_DISPLAY_SIZE, float animScale = 1.0f, bool isFake = false)
 {
     glPushMatrix();
     glTranslatef(x, y, 0);
@@ -372,7 +402,9 @@ void drawArrowShape(float x, float y, ArrowDir dir, int result, float size = ARR
     glRotatef(ang, 0, 0, 1);
     glScalef(size * animScale, size * animScale, 1);
 
-    if (result == 1)
+    if (isFake && result == 0)
+        glColor3f(1.0f, 0.2f, 0.2f); // unhit fake notes are red
+    else if (result == 1)
         glColor3f(0.1f, 1.0f, 0.2f); // Perfect
     else if (result == 2)
         glColor3f(0.4f, 0.8f, 0.2f); // Good
@@ -391,15 +423,21 @@ void drawArrowShape(float x, float y, ArrowDir dir, int result, float size = ARR
     glPopMatrix();
 }
 
-void drawAvatarShape(float x, float y, float radius)
+void drawAvatarShape(float x, float y, float radius, float angle = -1.0f)
 {
     int sides = PLAYER_AVATAR_SIDES;
-    float angle = fmod(glutGet(GLUT_ELAPSED_TIME) * PLAYER_AVATAR_SPIN_SPEED / 1000.0f, 360.0f);
+    float spinAngle;
+    
+    if (angle == -1.0f) 
+        spinAngle = fmod(glutGet(GLUT_ELAPSED_TIME) * PLAYER_AVATAR_SPIN_SPEED / 1000.0f, 360.0f);
+    else
+        spinAngle = angle;
+
 
     glColor3f(0.9f, 0.2f, 0.9f);
     glPushMatrix();
     glTranslatef(x, y, 0);
-    glRotatef(angle, 0, 0, 1);
+    glRotatef(spinAngle, 0, 0, 1); 
     glBegin(GL_POLYGON);
     for (int i = 0; i < sides; i++)
     {
@@ -443,15 +481,26 @@ void drawNodeIcon(NodeIcon icon, float x, float y)
         glEnd();
         break;
     case ICON_KEY:
-        glColor3f(0.1f, 0.1f, 0.1f);                // Black key
-        drawCircle(x - 0.01f, y + 0.01f, 0.015f);      // Key head
-        drawQuad(x - 0.01f, y - 0.003f, x + 0.02f, y + 0.003f); // Key shaft
-        drawQuad(x + 0.015f, y - 0.01f, x + 0.02f, y + 0.003f); // Key tooth
+        glColor3f(0.1f, 0.1f, 0.1f);
+        drawCircle(x - 0.01f, y + 0.01f, 0.015f);
+        drawQuad(x - 0.01f, y - 0.003f, x + 0.02f, y + 0.003f);
+        drawQuad(x + 0.015f, y - 0.01f, x + 0.02f, y + 0.003f);
         break;
     case ICON_LOCK:
         glColor3f(1.0f, 0.3f, 0.3f);
-        drawQuad(x - 0.015f, y - 0.02f, x + 0.015f, y + 0.005f); // Lock body
-        drawRing(x, y + 0.005f, 0.01f, 0.007f, 16);      // Shackle
+        drawQuad(x - 0.015f, y - 0.02f, x + 0.015f, y + 0.005f);
+        drawRing(x, y + 0.005f, 0.01f, 0.007f, 16);
+        break;
+    case ICON_WARP: 
+        glColor3f(0.8f, 0.3f, 1.0f); // Purple
+        glPushMatrix();
+        glTranslatef(x, y, 0);
+        drawQuad(-iconSize, -lineSize / 2, iconSize, lineSize / 2);
+        drawQuad(-lineSize / 2, -iconSize, lineSize / 2, iconSize);
+        glRotatef(45, 0, 0, 1);
+        drawQuad(-iconSize, -lineSize / 2, iconSize, lineSize / 2);
+        drawQuad(-lineSize / 2, -iconSize, lineSize / 2, iconSize);
+        glPopMatrix();
         break;
     default:
         break;
@@ -462,7 +511,7 @@ void drawNodeIcon(NodeIcon icon, float x, float y)
 void makeMap(int numNodes, int minLinks, int maxLinks, int numLocks)
 {
     nodes.clear();
-    particles.clear(); // Clear particles on new map
+    particles.clear();
     const int N = numNodes;
     nodes.resize(N);
 
@@ -470,7 +519,7 @@ void makeMap(int numNodes, int minLinks, int maxLinks, int numLocks)
     std::uniform_real_distribution<float> posDistY(-0.85f, 0.85f);
     std::uniform_int_distribution<int> nodeDist(0, N - 1);
     std::uniform_int_distribution<int> linkDist(minLinks, maxLinks);
-    std::uniform_int_distribution<int> typeDist(0, 10);
+    std::uniform_int_distribution<int> typeDist(0, 15); 
     std::uniform_int_distribution<int> arrowDist(0, 3);
 
     const float MIN_DIST = 0.14f;
@@ -499,7 +548,6 @@ void makeMap(int numNodes, int minLinks, int maxLinks, int numLocks)
                 return;
             }
         }
-        // Fallback grid placement if random fails
         float gridCols = sqrt(N);
         float gx = -0.8f + (idx % (int)gridCols) * (1.6f / (gridCols -1));
         float gy = 0.6f - (idx / (int)gridCols) * (1.2f / (gridCols - 1));
@@ -514,6 +562,8 @@ void makeMap(int numNodes, int minLinks, int maxLinks, int numLocks)
         nodes[i].isFinal = false;
         nodes[i].isLocked = false;
         nodes[i].isKey = false;
+        nodes[i].isTargetOfKey = false; 
+        nodes[i].isWarpNode = false; 
         nodes[i].keyNode = -1;
         nodes[i].lockNode = -1;
         nodes[i].password.clear();
@@ -525,6 +575,11 @@ void makeMap(int numNodes, int minLinks, int maxLinks, int numLocks)
             nodes[i].type = NODE_FAST;
         else if (typeRoll == 2 || typeRoll == 3)
             nodes[i].type = NODE_REWARD;
+        else if (typeRoll == 4)
+        {
+            nodes[i].type = NODE_WARP;
+            nodes[i].isWarpNode = true; 
+        }
         else
             nodes[i].type = NODE_NORMAL;
 
@@ -567,8 +622,7 @@ void makeMap(int numNodes, int minLinks, int maxLinks, int numLocks)
         while ((int)nodes[i].links.size() < desired && attempts++ < 200)
         {
             int j = nodeDist(rng);
-            if (j == i)
-                continue;
+            if (j == i) continue;
             bool already = false;
             for (int k : nodes[i].links)
                 if (k == j)
@@ -576,13 +630,11 @@ void makeMap(int numNodes, int minLinks, int maxLinks, int numLocks)
                     already = true;
                     break;
                 }
-            if (already)
-                continue;
-            if ((int)nodes[j].links.size() >= maxLinks) // Use maxLinks here
-                continue;
+            if (already) continue;
+            if ((int)nodes[j].links.size() >= maxLinks) continue;
             if (edgeWouldCross(i, j))
             {
-                if (attempts % 8 != 0) // occasionally allow crossing
+                if (attempts % 8 != 0)
                     continue;
             }
             nodes[i].links.push_back(j);
@@ -595,8 +647,7 @@ void makeMap(int numNodes, int minLinks, int maxLinks, int numLocks)
     int compId = 0;
     for (int i = 0; i < N; ++i)
     {
-        if (comp[i] != -1)
-            continue;
+        if (comp[i] != -1) continue;
         std::vector<int> q = { i };
         comp[i] = compId;
         for (size_t qi = 0; qi < q.size(); ++qi)
@@ -620,12 +671,10 @@ void makeMap(int numNodes, int minLinks, int maxLinks, int numLocks)
             bool connected = false;
             for (int a = 0; a < N && !connected; ++a)
             {
-                if (comp[a] != 0)
-                    continue;
+                if (comp[a] != 0) continue;
                 for (int b = 0; b < N && !connected; ++b)
                 {
-                    if (comp[b] != targetComp)
-                        continue;
+                    if (comp[b] != targetComp) continue;
                     if (!edgeWouldCross(a, b) || (rng() % 3 == 0))
                     {
                         nodes[a].links.push_back(b);
@@ -642,12 +691,10 @@ void makeMap(int numNodes, int minLinks, int maxLinks, int numLocks)
             {
                 for (int a = 0; a < N && !connected; ++a)
                 {
-                    if (comp[a] != 0)
-                        continue;
+                    if (comp[a] != 0) continue;
                     for (int b = 0; b < N && !connected; ++b)
                     {
-                        if (comp[b] != targetComp)
-                            continue;
+                        if (comp[b] != targetComp) continue;
                         nodes[a].links.push_back(b);
                         nodes[b].links.push_back(a);
                         int from = comp[b], to = comp[a];
@@ -661,32 +708,31 @@ void makeMap(int numNodes, int minLinks, int maxLinks, int numLocks)
         }
     }
 
-    // --- Lock and Key  ---
+    // --- Lock and Key ---
     for (int i = 0; i < numLocks; ++i)
     {
         int lockNode = nodeDist(rng);
         int keyNode = nodeDist(rng);
-        
         int attempts = 0;
         
         while (attempts < 100 && (lockNode == keyNode || 
-               nodes[lockNode].type != NODE_NORMAL || nodes[keyNode].type != NODE_NORMAL ||
-               nodes[lockNode].isLocked || nodes[lockNode].isKey ||
-               nodes[keyNode].isLocked || nodes[keyNode].isKey))
+            nodes[lockNode].type != NODE_NORMAL || nodes[keyNode].type != NODE_NORMAL ||
+            nodes[lockNode].isLocked || nodes[lockNode].isKey ||
+            nodes[keyNode].isLocked || nodes[keyNode].isKey))
         {
             lockNode = nodeDist(rng);
             keyNode = nodeDist(rng);
             attempts++;
         }
 
-        if(attempts >= 100) continue; // Skip this lock if we can't place it
+        if(attempts >= 100) continue; 
 
         nodes[lockNode].isLocked = true;
         nodes[lockNode].keyNode = keyNode;
         nodes[keyNode].isKey = true;
         nodes[keyNode].lockNode = lockNode;
 
-        for (int p = 0; p < 3; ++p) // 3-digit password
+        for (int p = 0; p < 3; ++p)
         {
             nodes[lockNode].password.push_back((ArrowDir)arrowDist(rng));
         }
@@ -700,11 +746,11 @@ void makeMap(int numNodes, int minLinks, int maxLinks, int numLocks)
     gameMessage = "";
     gameMessageTimer = 0.0f;
     revealedPasswords.clear();
+    screenShakeTimer = 0.0f;
 
     for (auto& n : nodes)
         n.visited = false;
     
-    // Find a valid starting node
     player.currentNode = nodeDist(rng);
     int startAttempts = 0;
     while(startAttempts < 100 && (nodes[player.currentNode].isKey || nodes[player.currentNode].isLocked || nodes[player.currentNode].isFinal))
@@ -712,7 +758,6 @@ void makeMap(int numNodes, int minLinks, int maxLinks, int numLocks)
         player.currentNode = nodeDist(rng);
         startAttempts++;
     }
-    // If we fail, just pick 0
     if (startAttempts >= 100) player.currentNode = 0;
 
 
@@ -721,13 +766,14 @@ void makeMap(int numNodes, int minLinks, int maxLinks, int numLocks)
     player.highlightedNeighbor = -1;
     player.targetNode = -1;
     player.moving = false;
+    player.avatarAngle = 0.0f;
 }
 
 void resetGame()
 {
-    currentLevel = 1; // NEW: Reset level
+    currentLevel = 1;
     playerLives = STARTING_LIVES;
-    makeMap(9, 1, 3, 1); // Level 1 map
+    makeMap(9, 1, 3, 1);
     inSequence = false;
     sequence.clear();
     player.targetNode = -1;
@@ -736,7 +782,7 @@ void resetGame()
     isGameOver = false;
     finalNodeIndex = -1;
     gameInProgress = true;
-    setGameMessage("New Game Started!", 1.5f);
+    setGameMessage("New Game Started!", 2.5f); 
 
     mciSendString(TEXT("stop music"), NULL, 0, NULL);
     mciSendString(TEXT("close music"), NULL, 0, NULL);
@@ -753,6 +799,7 @@ void spawnFinalNode()
     fn.visited = false;
     fn.type = NODE_NORMAL;
     fn.isFinal = true;
+    fn.isTargetOfKey = false;
     while (attempts++ < 500)
     {
         float x = posDistX(rng);
@@ -806,8 +853,8 @@ void spawnFinalNode()
     finalNodeSpawned = true;
     finalNodeIndex = idx;
     playSFX("Engage.wav");
-    setGameMessage("The Final Node has appeared!");
-    spawnParticles(200, fn.x, fn.y, 2.0f, 1.0f, 0.8f, 0.1f); // NEW: Particle spawn
+    setGameMessage("The Final Node has appeared!", 3.0f); 
+    spawnParticles(200, fn.x, fn.y, 2.0f, 1.0f, 0.8f, 0.1f);
 }
 
 void clampHighlightedNeighbor()
@@ -820,18 +867,16 @@ void clampHighlightedNeighbor()
     int n = (int)nodes[player.currentNode].links.size();
     if (n == 0)
     {
-        player.highlightedNeighbor = -1; // Only self is selectable
+        player.highlightedNeighbor = -1;
         return;
     }
-
-    // Allow range from -1 (self) to n-1 (last neighbor)
     if (player.highlightedNeighbor < -1)
     {
-        player.highlightedNeighbor = n - 1; // Wrap from self to last neighbor
+        player.highlightedNeighbor = n - 1;
     }
     if (player.highlightedNeighbor >= n)
     {
-        player.highlightedNeighbor = -1; // Wrap from last neighbor to self
+        player.highlightedNeighbor = -1;
     }
 }
 
@@ -843,7 +888,7 @@ void startMoveAnimation(int from, int to)
     player.moveTo = to;
     player.moveStartTimeMs = glutGet(GLUT_ELAPSED_TIME);
     player.moving = true;
-    playSFX("Move.wav");
+    playSFX("Movement.wav");
 }
 
 void attemptMoveToHighlightedNeighbor()
@@ -852,7 +897,7 @@ void attemptMoveToHighlightedNeighbor()
         return;
     if (player.highlightedNeighbor == -1)
     {
-        playSFX("Mistake.wav"); // Can't move to self
+        playSFX("Mistake.wav");
         return;
     }
 
@@ -870,6 +915,18 @@ void attemptMoveToHighlightedNeighbor()
     int neighbor = nodes[player.currentNode].links[player.highlightedNeighbor];
     Node& targetNode = nodes[neighbor];
 
+  
+    // Allow free movement to already-visited nodes (but not the final node)
+    if (targetNode.visited && !targetNode.isFinal)
+    {
+        startMoveAnimation(player.currentNode, neighbor);
+        player.currentNode = neighbor;
+        player.targetNode = -1;
+        player.highlightedNeighbor = -1; // Default to self
+        return; // Skip sequence logic entirely
+    }
+
+
     if (targetNode.isLocked)
     {
         player.targetNode = neighbor;
@@ -877,7 +934,7 @@ void attemptMoveToHighlightedNeighbor()
         isPasswordInput = true;
         seqIdx = 0;
         sequence.clear();
-        setGameMessage("Enter Password!", 2.0f);
+        setGameMessage("Enter Password!", 2.5f); 
         playSFX("Engage.wav");
         return;
     }
@@ -893,22 +950,34 @@ void attemptMoveToHighlightedNeighbor()
     else if (targetType == NODE_HAZARD)
     {
         currentSequenceIsHazard = true;
-        currentSequenceIsFast = true; // Hazard nodes are also fast
-        setGameMessage("HAZARD! Fast Timing & Perfect/Good only!");
+        currentSequenceIsFast = false; 
+        totalHazardSequences = 2;     
+        hazardSequencesRemaining = totalHazardSequences;
+        setGameMessage("HAZARD! Complete 2 sequences!", 3.0f);
     }
     else if (targetType == NODE_FAST)
     {
         currentSequenceIsFast = true;
-        setGameMessage("FAST! Timing is halved!");
+        setGameMessage("FAST! Timing is halved!", 3.0f); 
     }
     else if (targetType == NODE_REWARD)
-        setGameMessage("Energy Cell Added!");
+        setGameMessage("Energy Cell Added!"); 
     else if (targetNode.isKey)
         setGameMessage("Decrypter Found! Build path.");
+    else if (targetType == NODE_WARP)
+        setGameMessage("Warp Node... Shortcut?", 3.0f); 
 
     std::uniform_int_distribution<int> arrowDist(0, 3);
     std::uniform_int_distribution<int> lenDist(0, 2);
+    std::uniform_int_distribution<int> fakeRoll(0, 100); // For fake notes
     int len = targetNode.isFinal ? 5 : (3 + lenDist(rng));
+
+
+    if (currentSequenceIsHazard)
+    {
+        len = 3 + lenDist(rng) / 2; // Shorter 3-4 arrow sequences
+    }
+ 
 
     sequence.clear();
     for (int i = 0; i < len; ++i)
@@ -917,6 +986,15 @@ void attemptMoveToHighlightedNeighbor()
         a.dir = (ArrowDir)arrowDist(rng);
         a.result = 0;
         a.displayAnim = 1.0f;
+        
+
+        a.isFake = false;
+        if (currentSequenceIsHazard && fakeRoll(rng) < 20) // 20% chance for a fake note
+        {
+            a.isFake = true;
+        }
+    
+
         sequence.push_back(a);
     }
 
@@ -934,12 +1012,36 @@ void updateGame()
         return;
 
     int now = glutGet(GLUT_ELAPSED_TIME);
-    float dt = 0.016f; // NEW: delta time for particle system
-    updateParticles(dt); // NEW: Update particles
+    float dt = 0.016f; 
+    updateParticles(dt); 
+
+    if (screenShakeTimer > 0.0f) // screen shake
+        screenShakeTimer -= dt;
+
+    if (player.moving || inSequence || displayingPassword || currentGameState != STATE_PLAYING || player.highlightedNeighbor == -1)
+    {
+        // Spin normally
+        player.avatarAngle = fmod(glutGet(GLUT_ELAPSED_TIME) * PLAYER_AVATAR_SPIN_SPEED / 1000.0f, 360.0f);
+    }
+    else
+    {
+        // Point to highlighted neighbor
+        int neighborIdx = nodes[player.currentNode].links[player.highlightedNeighbor];
+        Node& target = nodes[neighborIdx];
+        float dx = target.x - player.x;
+        float dy = target.y - player.y;
+        float targetAngle = atan2(dy, dx) * 180.0f / 3.1415926f;
+        
+        // Smoothly lerp to the target angle
+        float diff = targetAngle - player.avatarAngle;
+        while (diff < -180.0f) diff += 360.0f;
+        while (diff > 180.0f) diff -= 360.0f;
+        player.avatarAngle += diff * PLAYER_AVATAR_TURN_SPEED; // Smooth turn
+    }
+    
 
     if (gameWon)
     {
-        // NEW: Spawn victory particles continuously
         if (rng() % 3 == 0) 
         {
             spawnParticles(5, player.x, player.y, 3.0f, 0.2f, 1.0f, 0.3f);
@@ -985,13 +1087,77 @@ void updateGame()
     if (inSequence && !isPasswordInput && stepWaitingForInput)
     {
         int dt_ms = now - stepStartTimeMs;
+        
+        if (seqIdx < sequence.size() && sequence[seqIdx].isFake)
+        {
+            // If the note is fake, we pass by *waiting*
+            if (dt_ms > currentBadMs + 100) // Wait until just after the 'bad' window
+            {
+                sequence[seqIdx].result = 1; // Mark as "perfect"
+                sequence[seqIdx].displayAnim = 1.2f;
+                playSFX("Select.wav"); // Use a neutral "pass" sound
+                
+                seqIdx++;
+                stepWaitingForInput = false;
+
+                if (seqIdx < (int)sequence.size()) // More notes
+                {
+                    stepStartTimeMs = glutGet(GLUT_ELAPSED_TIME) + 100;
+                    stepWaitingForInput = true;
+                }
+                else 
+                {
+                    
+                    if (currentSequenceIsHazard)
+                    {
+                        hazardSequencesRemaining--;
+                        if (hazardSequencesRemaining > 0)
+                        {
+                            generateNextHazardSequence();
+                            glutPostRedisplay();
+                            return; 
+                        }
+                    }
+                    
+                    if (player.targetNode >= 0)
+                    {
+                        
+                        Node& target = nodes[player.targetNode];
+
+
+                        target.visited = true;
+                        if (target.type == NODE_REWARD) { }
+
+                        spawnParticles(50, nodes[player.targetNode].x, nodes[player.targetNode].y, 1.0f, 0.2f, 1.0f, 0.3f);
+                        startMoveAnimation(player.currentNode, player.targetNode);
+                        player.currentNode = player.targetNode;
+                        player.targetNode = -1;
+                        player.highlightedNeighbor = -1;
+                    }
+
+                    inSequence = false;
+                    sequence.clear();
+                    seqIdx = 0;
+                    stepWaitingForInput = false;
+                    currentSequenceIsHazard = false;
+                    hazardSequencesRemaining = 0;
+                    totalHazardSequences = 0;
+                }
+                glutPostRedisplay();
+                return; 
+            }
+        }
+
+
+       
         if (dt_ms > currentBadMs + 300)
         {
             // --- TIME OUT ---
             sequence[seqIdx].result = -1;
             sequence[seqIdx].displayAnim = 1.2f;
             playSFX("Mistake.wav");
-            spawnParticles(30, player.x, player.y, 1.0f, 1.0f, 0.2f, 0.2f); // NEW: Fail particles
+            spawnParticles(30, player.x, player.y, 1.0f, 1.0f, 0.2f, 0.2f);
+            screenShakeTimer = 0.4f; // Screen shake
 
             playerLives--;
             if (playerLives <= 0)
@@ -1001,13 +1167,17 @@ void updateGame()
             }
             else
             {
-                setGameMessage("Sequence Failed! Energy: " + std::to_string(playerLives), 2.0f);
+                setGameMessage("Sequence Failed! Energy: " + std::to_string(playerLives), 3.0f); 
             }
 
             inSequence = false;
             sequence.clear();
             seqIdx = 0;
             stepWaitingForInput = false;
+            
+            currentSequenceIsHazard = false;
+            hazardSequencesRemaining = 0;
+            totalHazardSequences = 0;
         }
     }
 
@@ -1019,10 +1189,15 @@ void updateGame()
             player.moving = false;
             player.x = nodes[player.moveTo].x;
             player.y = nodes[player.moveTo].y;
+            playSFX("Movement.wav");
+            
             if (player.moveTo >= 0 && player.moveTo < (int)nodes.size() && nodes[player.moveTo].isFinal)
             {
                 gameWon = true;
-                setGameMessage("NETWORK ANOMALY " + std::to_string(currentLevel) + " SOLVED! Press SPACE.", 1000.0f);
+        
+                gameMessage = loreSnippets[currentLevel % loreSnippets.size()];
+                gameMessageTimer = 1000.0f; 
+                gameMessageMaxTimer = 1000.0f; 
                 playSFX("Success.wav");
             }
         }
@@ -1048,7 +1223,7 @@ void handlePasswordInput(ArrowDir pressed)
     {
         sequence.push_back({ pressed, 1, 1.2f });
         seqIdx++;
-        playSFX("Select.wav");
+        playSFX("Success.wav"); 
 
         if (seqIdx == password.size()) // --- PASSWORD COMPLETE ---
         {
@@ -1059,14 +1234,14 @@ void handlePasswordInput(ArrowDir pressed)
             inSequence = false;
             isPasswordInput = false;
 
-            setGameMessage("Firewall Unlocked!", 2.0f);
+            setGameMessage("Firewall Unlocked!", 3.0f); 
             playSFX("Engage.wav");
-            spawnParticles(100, lockNode.x, lockNode.y, 1.5f, 1.0f, 1.0f, 0.2f); // NEW: Unlock particles
+            spawnParticles(100, lockNode.x, lockNode.y, 1.5f, 1.0f, 1.0f, 0.2f);
 
             startMoveAnimation(player.currentNode, player.targetNode);
             player.currentNode = player.targetNode;
             player.targetNode = -1;
-            player.highlightedNeighbor = -1; // Default to self
+            player.highlightedNeighbor = -1;
         }
     }
     else // --- WRONG KEY ---
@@ -1079,16 +1254,45 @@ void handlePasswordInput(ArrowDir pressed)
         }
         else
         {
-            setGameMessage("Access Denied! Energy: " + std::to_string(playerLives), 2.0f);
+            setGameMessage("Access Denied! Energy: " + std::to_string(playerLives), 3.0f); 
         }
 
         playSFX("Mistake.wav");
-        spawnParticles(30, player.x, player.y, 1.0f, 1.0f, 0.2f, 0.2f); // NEW: Fail particles
+        screenShakeTimer = 0.4f; // Screen shake
+        spawnParticles(30, player.x, player.y, 1.0f, 1.0f, 0.2f, 0.2f);
         inSequence = false;
         isPasswordInput = false;
     }
     glutPostRedisplay();
 }
+
+void generateNextHazardSequence()
+{
+    playSFX("Engage.wav");
+    setGameMessage("HAZARD! Sequence " + std::to_string(totalHazardSequences - hazardSequencesRemaining + 1) + " of " + std::to_string(totalHazardSequences), 3.0f); 
+
+    std::uniform_int_distribution<int> arrowDist(0, 3);
+    std::uniform_int_distribution<int> lenDist(0, 1); // 3-4 arrows
+    std::uniform_int_distribution<int> fakeRoll(0, 100);
+    int len = 3 + lenDist(rng);
+
+    sequence.clear();
+    for (int i = 0; i < len; ++i)
+    {
+        Arrow a;
+        a.dir = (ArrowDir)arrowDist(rng);
+        a.result = 0;
+        a.displayAnim = 1.0f;
+        a.isFake = (fakeRoll(rng) < 20); // 20% chance
+        sequence.push_back(a);
+    }
+
+    seqIdx = 0;
+    stepWaitingForInput = true;
+    stepStartTimeMs = glutGet(GLUT_ELAPSED_TIME) + 200;
+}
+
+
 
 void handleArrowPress(ArrowDir pressed)
 {
@@ -1109,7 +1313,14 @@ void handleArrowPress(ArrowDir pressed)
 
     bool sequenceFailed = false;
 
-    if (sequence[seqIdx].dir == pressed)
+   
+    if (sequence[seqIdx].isFake)
+    {
+        sequenceFailed = true; // Pressing *anything* on a fake note is a fail
+        setGameMessage("Tripped wire!", 3.0f); 
+    }
+    
+    else if (sequence[seqIdx].dir == pressed)
     {
         int tier = 0;
         if (dt <= currentPerfectMs)
@@ -1125,7 +1336,7 @@ void handleArrowPress(ArrowDir pressed)
         {
             sequence[seqIdx].result = 1;
             playSFX("Success.wav");
-            spawnParticles(10, player.x, player.y, 0.5f, 0.1f, 1.0f, 0.2f); // NEW: Perfect particles
+            spawnParticles(10, player.x, player.y, 0.5f, 0.1f, 1.0f, 0.2f);
         }
         else if (tier == 2) // Good
         {
@@ -1137,7 +1348,7 @@ void handleArrowPress(ArrowDir pressed)
             if (currentSequenceIsHazard)
             {
                 sequenceFailed = true;
-                setGameMessage("Hazard Failed!");
+                setGameMessage("Hazard Failed!", 3.0f); 
             }
             else
             {
@@ -1156,7 +1367,8 @@ void handleArrowPress(ArrowDir pressed)
         // --- FAILURE ---
         sequence[seqIdx].result = -1;
         playSFX("Mistake.wav");
-        spawnParticles(30, player.x, player.y, 1.0f, 1.0f, 0.2f, 0.2f); // NEW: Fail particles
+        spawnParticles(30, player.x, player.y, 1.0f, 1.0f, 0.2f, 0.2f);
+        screenShakeTimer = 0.5f; 
 
         playerLives--;
         if (playerLives <= 0)
@@ -1166,13 +1378,20 @@ void handleArrowPress(ArrowDir pressed)
         }
         else
         {
-            setGameMessage("Sequence Failed! Energy: " + std::to_string(playerLives), 2.0f);
+            setGameMessage("Sequence Failed! Energy: " + std::to_string(playerLives), 3.0f); 
         }
 
         inSequence = false;
         sequence.clear();
         seqIdx = 0;
         stepWaitingForInput = false;
+        
+       
+        currentSequenceIsHazard = false;
+        hazardSequencesRemaining = 0;
+        totalHazardSequences = 0;
+    
+        
         glutPostRedisplay();
         return;
     }
@@ -1189,9 +1408,71 @@ void handleArrowPress(ArrowDir pressed)
     }
     else // --- SEQUENCE COMPLETE (All notes hit) ---
     {
+        
+        if (currentSequenceIsHazard)
+        {
+            hazardSequencesRemaining--;
+            if (hazardSequencesRemaining > 0)
+            {
+                // More sequences to go! Generate the next one.
+                generateNextHazardSequence();
+                glutPostRedisplay();
+                return; // Do NOT move player yet
+            }
+            // This was the last sequence, fall through to move the player
+        }
+      
+        
         if (player.targetNode >= 0)
         {
             Node& target = nodes[player.targetNode];
+
+           
+            if (target.type == NODE_WARP && !target.visited) // Only trigger warp ONCE
+            {
+                int numWarpLinks = 1 + (rng() % 2); // 1 or 2
+                int N = (int)nodes.size();
+                int createdLinks = 0;
+                std::string msg = "Warp links established!";
+
+                for (int k = 0; k < numWarpLinks; ++k)
+                {
+                    int attempts = 0;
+                    while (attempts < 50)
+                    {
+                        // Find a random node (but not the final node)
+                        int linkTargetNode = rng() % (N - 1); 
+                        if (linkTargetNode >= finalNodeIndex && finalNodeIndex != -1) linkTargetNode = (linkTargetNode + 1) % (N - 1);
+                        
+                        // Check not self or already linked
+                        bool alreadyLinked = false;
+                        if (linkTargetNode == player.targetNode) alreadyLinked = true;
+                        for (int l : target.links) {
+                            if (l == linkTargetNode) {
+                                alreadyLinked = true;
+                                break;
+                            }
+                        }
+
+                        if (!alreadyLinked)
+                        {
+                            target.links.push_back(linkTargetNode);
+                            nodes[linkTargetNode].links.push_back(player.targetNode);
+                            createdLinks++;
+                            
+                            // Visual effect
+                            spawnParticles(30, target.x, target.y, 1.5f, 0.8f, 0.3f, 1.0f);
+                            spawnParticles(30, nodes[linkTargetNode].x, nodes[linkTargetNode].y, 1.5f, 0.8f, 0.3f, 1.0f);
+                            break; // Success, move to next link
+                        }
+                        attempts++;
+                    }
+                }
+                
+                if (createdLinks == 0) msg = "Warp failed... no new links found.";
+                setGameMessage(msg, 3.0f); 
+            }
+      
 
             if (target.isKey)
             {
@@ -1200,10 +1481,11 @@ void handleArrowPress(ArrowDir pressed)
                 sequence.clear();
                 for (ArrowDir dir : nodes[lockId].password)
                 {
-                    sequence.push_back({ dir, 0, 1.0f });
+                    sequence.push_back({ dir, 0, 1.0f, false });
                 }
 
                 revealedPasswords[lockId] = nodes[lockId].password;
+                nodes[lockId].isTargetOfKey = true; 
 
                 displayingPassword = true;
                 justRevealedPassword = true;
@@ -1218,23 +1500,27 @@ void handleArrowPress(ArrowDir pressed)
             if (target.type == NODE_REWARD)
             {
                 playerLives++;
-                setGameMessage("Energy Cell Added! (Energy: " + std::to_string(playerLives) + ")", 2.0f);
+                setGameMessage("Energy Cell Added! (Energy: " + std::to_string(playerLives) + ")", 3.0f); // 
                 target.type = NODE_NORMAL;
             }
 
-            // NEW: Success particles
             spawnParticles(50, nodes[player.targetNode].x, nodes[player.targetNode].y, 1.0f, 0.2f, 1.0f, 0.3f);
 
             startMoveAnimation(player.currentNode, player.targetNode);
             player.currentNode = player.targetNode;
             player.targetNode = -1;
-            player.highlightedNeighbor = -1; // Default to self
+            player.highlightedNeighbor = -1;
         }
 
         inSequence = false;
         sequence.clear();
         seqIdx = 0;
         stepWaitingForInput = false;
+        
+        currentSequenceIsHazard = false;
+        hazardSequencesRemaining = 0;
+        totalHazardSequences = 0;
+
     }
 
     glutPostRedisplay();
@@ -1242,20 +1528,16 @@ void handleArrowPress(ArrowDir pressed)
 
 void specialKeys(int key, int x, int y)
 {
-    if (displayingPassword)
-        return;
-    if (isGameOver)
-        return;
-
+  
     if (currentGameState == STATE_MENU)
     {
         std::vector<std::string> menuItems;
         if (isGameOver)
-            menuItems = { "New Game", "Quit" };
+            menuItems = { "New Game", "Almanac", "Quit" };
         else if (gameInProgress)
-            menuItems = { "Resume Game", "Music Volume", "SFX", "Restart Game", "Quit" };
+            menuItems = { "Resume Game", "Music Volume", "SFX", "Almanac", "Restart Game", "Quit" };
         else
-            menuItems = { "New Game", "Music Volume", "SFX", "Quit" };
+            menuItems = { "New Game", "Music Volume", "SFX", "Almanac", "Quit" };
 
         if (menuSelectedItem >= (int)menuItems.size())
             menuSelectedItem = 0;
@@ -1274,14 +1556,12 @@ void specialKeys(int key, int x, int y)
         else if (key == GLUT_KEY_LEFT)
         {
             const std::string& item = menuItems[menuSelectedItem];
-            if (item == "Music Volume")
-            {
+            if (item == "Music Volume") {
                 musicVolume = std::max(0, musicVolume - 10);
                 updateMusicVolume();
                 playSFX("Select.wav");
             }
-            else if (item == "SFX")
-            {
+            else if (item == "SFX") {
                 sfxEnabled = !sfxEnabled;
                 playSFX("Select.wav");
             }
@@ -1289,14 +1569,12 @@ void specialKeys(int key, int x, int y)
         else if (key == GLUT_KEY_RIGHT)
         {
             const std::string& item = menuItems[menuSelectedItem];
-            if (item == "Music Volume")
-            {
+            if (item == "Music Volume") {
                 musicVolume = std::min(100, musicVolume + 10);
                 updateMusicVolume();
                 playSFX("Select.wav");
             }
-            else if (item == "SFX")
-            {
+            else if (item == "SFX") {
                 sfxEnabled = !sfxEnabled;
                 playSFX("Select.wav");
             }
@@ -1304,40 +1582,44 @@ void specialKeys(int key, int x, int y)
         glutPostRedisplay();
         return;
     }
+    
+  
+    if (currentGameState == STATE_ALMANAC)
+    {
+        return; // No arrow key input in almanac
+    }
 
-    if (currentGameState != STATE_PLAYING)
-        return;
-    if (gameWon)
-        return;
+    if (displayingPassword) return;
+    if (isGameOver) return; 
+    if (currentGameState != STATE_PLAYING) return;
+    if (gameWon) return;
+
+    // --- Gameplay Input Logic ---
 
     if (inSequence && (stepWaitingForInput || isPasswordInput))
     {
         ArrowDir pressed;
-        if (key == GLUT_KEY_UP)
-            pressed = ARROW_UP;
-        else if (key == GLUT_KEY_DOWN)
-            pressed = ARROW_DOWN;
-        else if (key == GLUT_KEY_LEFT)
-            pressed = ARROW_LEFT;
-        else if (key == GLUT_KEY_RIGHT)
-            pressed = ARROW_RIGHT;
-        else
-            return;
+        if (key == GLUT_KEY_UP) pressed = ARROW_UP;
+        else if (key == GLUT_KEY_DOWN) pressed = ARROW_DOWN;
+        else if (key == GLUT_KEY_LEFT) pressed = ARROW_LEFT;
+        else if (key == GLUT_KEY_RIGHT) pressed = ARROW_RIGHT;
+        else return;
+        
         handleArrowPress(pressed);
         return;
     }
 
     if (!inSequence)
     {
-        if (key == GLUT_KEY_LEFT)
-        {
+        if (key == GLUT_KEY_LEFT) {
             player.highlightedNeighbor--;
             clampHighlightedNeighbor();
+            playSFX("Select.wav");
         }
-        if (key == GLUT_KEY_RIGHT)
-        {
+        if (key == GLUT_KEY_RIGHT) {
             player.highlightedNeighbor++;
             clampHighlightedNeighbor();
+            playSFX("Select.wav");
         }
         glutPostRedisplay();
         return;
@@ -1348,23 +1630,24 @@ void keyboard(unsigned char k, int x, int y)
 {
     if (k == 27) // ESC key
     {
-        if (displayingPassword)
+        if (displayingPassword) return;
+        
+        if (currentGameState == STATE_ALMANAC)
         {
+            currentGameState = STATE_MENU;
+            glutPostRedisplay();
             return;
         }
         
-        if (isGameOver)
-        {
+        if (isGameOver) {
             currentGameState = STATE_MENU;
             setGameMessage("", 0.0f);
         }
-        else if (currentGameState == STATE_PLAYING)
-        {
+        else if (currentGameState == STATE_PLAYING) {
             currentGameState = STATE_MENU;
             setGameMessage("Paused", 1.0f);
         }
-        else if (currentGameState == STATE_MENU && gameInProgress)
-        {
+        else if (currentGameState == STATE_MENU && gameInProgress) {
             currentGameState = STATE_PLAYING;
             setGameMessage("", 0.0f);
         }
@@ -1374,20 +1657,27 @@ void keyboard(unsigned char k, int x, int y)
 
     if (displayingPassword)
     {
-        if (k == ' ' || k == 13)
-        {
+        if (k == ' ' || k == 13) {
             displayingPassword = false;
-
-            if (justRevealedPassword)
-            {
+            if (justRevealedPassword) {
                 Node& keyNode = nodes[player.targetNode];
                 keyNode.visited = true;
-
                 startMoveAnimation(player.currentNode, player.targetNode);
                 player.currentNode = player.targetNode;
                 player.targetNode = -1;
-                player.highlightedNeighbor = -1; // Default to self
+                player.highlightedNeighbor = -1; 
             }
+            glutPostRedisplay();
+        }
+        return;
+    }
+    
+  
+    if (currentGameState == STATE_ALMANAC)
+    {
+        if (k == ' ' || k == 13) // Also allow space/enter to close
+        {
+            currentGameState = STATE_MENU;
             glutPostRedisplay();
         }
         return;
@@ -1397,37 +1687,32 @@ void keyboard(unsigned char k, int x, int y)
     {
         std::vector<std::string> menuItems;
         if (isGameOver)
-            menuItems = { "New Game", "Quit" };
+            menuItems = { "New Game", "Almanac", "Quit" };
         else if (gameInProgress)
-            menuItems = { "Resume Game", "Music Volume", "SFX", "Restart Game", "Quit" }; 
+            menuItems = { "Resume Game", "Music Volume", "SFX", "Almanac", "Restart Game", "Quit" }; 
         else
-            menuItems = { "New Game", "Music Volume", "SFX", "Quit" };
+            menuItems = { "New Game", "Music Volume", "SFX", "Almanac", "Quit" };
 
-        if (menuSelectedItem >= (int)menuItems.size())
-            menuSelectedItem = 0;
+        if (menuSelectedItem >= (int)menuItems.size()) menuSelectedItem = 0;
         int numItems = (int)menuItems.size();
 
-        if (k == 'w' || k == 'W')
-        {
+        if (k == 'w' || k == 'W') {
             menuSelectedItem = (menuSelectedItem - 1 + numItems) % numItems;
             playSFX("Select.wav");
         }
-        else if (k == 's' || k == 'S')
-        {
+        else if (k == 's' || k == 'S') {
             menuSelectedItem = (menuSelectedItem + 1) % numItems;
             playSFX("Select.wav");
         }
         else if (k == 'a' || k == 'A')
         {
             const std::string& item = menuItems[menuSelectedItem];
-            if (item == "Music Volume")
-            {
+            if (item == "Music Volume") {
                 musicVolume = std::max(0, musicVolume - 10);
                 updateMusicVolume();
                 playSFX("Select.wav");
             }
-            else if (item == "SFX")
-            {
+            else if (item == "SFX") {
                 sfxEnabled = !sfxEnabled;
                 playSFX("Select.wav");
             }
@@ -1435,40 +1720,37 @@ void keyboard(unsigned char k, int x, int y)
         else if (k == 'd' || k == 'D')
         {
             const std::string& item = menuItems[menuSelectedItem];
-            if (item == "Music Volume")
-            {
+            if (item == "Music Volume") {
                 musicVolume = std::min(100, musicVolume + 10);
                 updateMusicVolume();
                 playSFX("Select.wav");
             }
-            else if (item == "SFX")
-            {
+            else if (item == "SFX") {
                 sfxEnabled = !sfxEnabled;
                 playSFX("Select.wav");
             }
         }
-        else if (k == ' ' || k == 13)
-        {
+        else if (k == ' ' || k == 13) {
             const std::string& item = menuItems[menuSelectedItem];
             playSFX("Engage.wav");
-            if (item == "New Game")
-            {
+            if (item == "New Game") {
                 resetGame();
                 currentGameState = STATE_PLAYING;
             }
-            else if (item == "Resume Game")
-            {
+            else if (item == "Resume Game") {
                 currentGameState = STATE_PLAYING;
                 setGameMessage("", 0.0f);
             }
-            
-            else if (item == "Restart Game")
-            {
+            else if (item == "Restart Game") {
                 resetGame();
                 currentGameState = STATE_PLAYING;
             }
-            else if (item == "Quit")
+            else if (item == "Almanac") { 
+                currentGameState = STATE_ALMANAC;
+            }
+            else if (item == "Quit") {
                 exit(0);
+            }
         }
         glutPostRedisplay();
         return;
@@ -1476,20 +1758,17 @@ void keyboard(unsigned char k, int x, int y)
 
     if (currentGameState == STATE_PLAYING)
     {
+        if (isGameOver) return; 
+
         if (gameWon)
         {
-            if (k == ' ' || k == 13)
-            {
-                // NEW: Advance to next level
+            if (k == ' ' || k == 13) {
                 currentLevel++;
-                int numNodes = std::min(30, 8 + currentLevel); // Cap nodes at 30
-                int numLocks = std::min(5, 1 + (currentLevel / 2)); // Cap locks at 5
-                int maxLinks = std::min(4, 2 + currentLevel / 3); // Cap links at 4
-                
-                playerLives = STARTING_LIVES + (currentLevel / 3); // Bonus life every 3 levels
+                int numNodes = std::min(30, 8 + currentLevel);
+                int numLocks = std::min(5, 1 + (currentLevel / 2));
+                int maxLinks = std::min(4, 2 + currentLevel / 3);
+                playerLives = STARTING_LIVES + (currentLevel / 3);
                 makeMap(numNodes, 1, maxLinks, numLocks);
-                
-                // Reset player state
                 inSequence = false;
                 sequence.clear();
                 player.targetNode = -1;
@@ -1498,87 +1777,77 @@ void keyboard(unsigned char k, int x, int y)
                 isGameOver = false;
                 finalNodeIndex = -1;
                 gameInProgress = true;
-                setGameMessage("Level " + std::to_string(currentLevel) + "!", 2.0f);
+                setGameMessage("Level " + std::to_string(currentLevel) + "!", 3.0f); // 
             }
             return;
         }
 
         if (inSequence && (stepWaitingForInput || isPasswordInput))
         {
-            // NEW: Allow SPACE to cancel password input
-            if (isPasswordInput && (k == ' ' || k == 13))
-            {
+            if (isPasswordInput && (k == ' ' || k == 13)) {
                 inSequence = false;
                 isPasswordInput = false;
                 sequence.clear();
                 seqIdx = 0;
                 player.targetNode = -1;
                 stepWaitingForInput = false;
-                setGameMessage("Password Cancelled", 1.0f);
+                currentSequenceIsHazard = false;
+                hazardSequencesRemaining = 0;
+                totalHazardSequences = 0;
+                setGameMessage("Password Cancelled", 2.0f); // 
                 glutPostRedisplay();
                 return;
             }
 
             ArrowDir pressed;
-            if (k == 'w' || k == 'W')
-                pressed = ARROW_UP;
-            else if (k == 's' || k == 'S')
-                pressed = ARROW_DOWN;
-            else if (k == 'a' || k == 'A')
-                pressed = ARROW_LEFT;
-            else if (k == 'd' || k == 'D')
-                pressed = ARROW_RIGHT;
-            else
-                return;
+            if (k == 'w' || k == 'W') pressed = ARROW_UP;
+            else if (k == 's' || k == 'S') pressed = ARROW_DOWN;
+            else if (k == 'a' || k == 'A') pressed = ARROW_LEFT;
+            else if (k == 'd' || k == 'D') pressed = ARROW_RIGHT;
+            else return;
             handleArrowPress(pressed);
             return;
         }
 
         if (k == ' ' || k == 13)
         {
-            if (inSequence) // This now only cancels normal sequences
-            {
+            if (inSequence) {
                 inSequence = false;
                 isPasswordInput = false;
                 sequence.clear();
                 seqIdx = 0;
                 player.targetNode = -1;
                 stepWaitingForInput = false;
-                setGameMessage("Sequence Cancelled", 1.0f);
+                currentSequenceIsHazard = false;
+                hazardSequencesRemaining = 0;
+                totalHazardSequences = 0;
+                setGameMessage("Sequence Cancelled", 2.0f); // 
             }
-            else
-            {
-                if (player.highlightedNeighbor == -1) // Player is highlighting self
-                {
+            else {
+                if (player.highlightedNeighbor == -1) {
+                    // Interact with self (check for key knowledge)
                     Node& selfNode = nodes[player.currentNode];
                     int lockId = -1;
-                    if (selfNode.isKey)
-                        lockId = selfNode.lockNode;
+                    if (selfNode.isKey) lockId = selfNode.lockNode;
 
-                    if (lockId != -1 && revealedPasswords.count(lockId))
-                    {
-                        // View password
+                    if (lockId != -1 && revealedPasswords.count(lockId)) {
                         sequence.clear();
-                        for (ArrowDir dir : revealedPasswords[lockId])
-                        {
-                            sequence.push_back({ dir, 0, 1.0f });
+                        for (ArrowDir dir : revealedPasswords[lockId]) {
+                            sequence.push_back({ dir, 0, 1.0f, false });
                         }
                         displayingPassword = true;
                         justRevealedPassword = false;
                         setGameMessage("Viewing Password. Press SPACE.", 1000.0f);
                     }
-                    else if (selfNode.isKey)
-                    {
-                        setGameMessage("Password not yet discovered!", 1.0f);
+                    else if (selfNode.isKey) {
+                        setGameMessage("Password not yet discovered!", 2.5f); // 
                         playSFX("Mistake.wav");
                     }
-                    else
-                    {
-                        playSFX("Mistake.wav"); // No action on self
+                    else {
+                        playSFX("Mistake.wav"); 
                     }
                 }
-                else // Player is highlighting a neighbor
-                {
+                else {
                     attemptMoveToHighlightedNeighbor();
                 }
             }
@@ -1587,15 +1856,13 @@ void keyboard(unsigned char k, int x, int y)
 
         if (!inSequence)
         {
-            if (k == 'a' || k == 'A')
-            {
+            if (k == 'a' || k == 'A') {
                 player.highlightedNeighbor--;
                 clampHighlightedNeighbor();
                 playSFX("Select.wav");
                 glutPostRedisplay();
             }
-            if (k == 'd' || k == 'D')
-            {
+            if (k == 'd' || k == 'D') {
                 player.highlightedNeighbor++;
                 clampHighlightedNeighbor();
                 playSFX("Select.wav");
@@ -1605,25 +1872,12 @@ void keyboard(unsigned char k, int x, int y)
     }
 }
 
+
 // ---------- Draw Avatar (spinning) ----------
 void drawAvatar(float x, float y)
 {
-    float radius = PLAYER_AVATAR_RADIUS;
-    int sides = PLAYER_AVATAR_SIDES;
-    float angle = fmod(glutGet(GLUT_ELAPSED_TIME) * PLAYER_AVATAR_SPIN_SPEED / 1000.0f, 360.0f);
-
-    glColor3f(0.9f, 0.2f, 0.9f);
-    glPushMatrix();
-    glTranslatef(x, y, 0);
-    glRotatef(angle, 0, 0, 1);
-    glBegin(GL_POLYGON);
-    for (int i = 0; i < sides; i++)
-    {
-        float a = i / (float)sides * 2.0f * 3.1415926f;
-        glVertex2f(cosf(a) * radius, sinf(a) * radius);
-    }
-    glEnd();
-    glPopMatrix();
+    // 
+    drawAvatarShape(x, y, PLAYER_AVATAR_RADIUS, player.avatarAngle);
 }
 
 // ---------- Draw Map ----------
@@ -1670,7 +1924,7 @@ void drawMap()
     if (!nodes.empty() && player.currentNode >= 0 && player.currentNode < (int)nodes.size() && !inSequence && !player.moving && !displayingPassword)
     {
         clampHighlightedNeighbor();
-        if (player.highlightedNeighbor >= 0) // Only if highlighting a neighbor
+        if (player.highlightedNeighbor >= 0)
             highlightedNodeIndex = nodes[player.currentNode].links[player.highlightedNeighbor];
     }
 
@@ -1683,18 +1937,24 @@ void drawMap()
 
             bool isPlayerLink = (i == player.currentNode || j == player.currentNode) && !player.moving && !inSequence && !displayingPassword;
             bool isHighlightLink = (highlightedNodeIndex != -1) && (i == highlightedNodeIndex || j == highlightedNodeIndex) && !player.moving && !inSequence && !displayingPassword;
-
+             
+            bool isWarpLink = (nodes[i].isWarpNode || nodes[j].isWarpNode);
+           
             if (isHighlightLink)
             {
-                glColor3f(0.4f * globalPulse, 1.0f * globalPulse, 0.5f * globalPulse); // Pulsing Green
+                glColor3f(0.4f * globalPulse, 1.0f * globalPulse, 0.5f * globalPulse);
             }
             else if (isPlayerLink)
             {
-                glColor3f(0.6f * globalPulse, 0.75f * globalPulse, 0.9f * globalPulse); // Pulsing Blue
+                glColor3f(0.6f * globalPulse, 0.75f * globalPulse, 0.9f * globalPulse);
+            }
+            else if (isWarpLink) 
+            {
+                glColor3f(0.5f, 0.3f, 0.6f); // Dim purple for warp links
             }
             else
             {
-                glColor3f(0.6f, 0.75f, 0.9f); // Standard link
+                glColor3f(0.6f, 0.75f, 0.9f);
             }
 
             glBegin(GL_LINES);
@@ -1707,6 +1967,15 @@ void drawMap()
     for (size_t i = 0; i < nodes.size(); i++)
     {
         float x = nodes[i].x, y = nodes[i].y;
+        
+      
+        if (nodes[i].isTargetOfKey && nodes[i].isLocked)
+        {
+            float pulse = 0.5f + 0.5f * (1.0f + sinf(glutGet(GLUT_ELAPSED_TIME) * 0.008f));
+            glColor4f(1.0f, 1.0f, 1.0f, pulse); // White pulse
+            drawRing(x, y, NODE_RING_KEY_PULSE_OUT, NODE_RING_KEY_PULSE_IN);
+        }
+
         if (nodes[i].isFinal)
         {
             glColor3f(1.0f, 0.8f, 0.1f);
@@ -1732,6 +2001,8 @@ void drawMap()
                 glColor3f(1.0f, 0.3f, 0.3f);
             else if (nodes[i].type == NODE_FAST)
                 glColor3f(1.0f, 0.8f, 0.2f);
+            else if (nodes[i].type == NODE_WARP)
+                glColor3f(0.8f, 0.3f, 1.0f); // Purple
             else
                 glColor3f(0.95f, 0.95f, 0.95f);
             drawCircle(x, y, NODE_RADIUS_UNVISITED);
@@ -1745,6 +2016,8 @@ void drawMap()
             icon = ICON_HAZARD;
         else if (nodes[i].type == NODE_FAST)
             icon = ICON_FAST;
+        else if (nodes[i].type == NODE_WARP)
+            icon = ICON_WARP;
 
         if (nodes[i].isKey)
             icon = ICON_KEY;
@@ -1764,9 +2037,9 @@ void drawMap()
             glColor3f(0.4f, 1.0f, 0.5f);
             drawRing(nodes[highlightedNodeIndex].x, nodes[highlightedNodeIndex].y, NODE_RING_HIGHLIGHT_OUT, NODE_RING_HIGHLIGHT_IN);
         }
-        else if (player.highlightedNeighbor == -1) // NEW: Highlighting self
+        else if (player.highlightedNeighbor == -1)
         {
-            glColor3f(0.4f, 1.0f, 0.5f); // Same green highlight
+            glColor3f(0.4f, 1.0f, 0.5f);
             drawRing(nodes[player.currentNode].x, nodes[player.currentNode].y, NODE_RING_HIGHLIGHT_OUT, NODE_RING_HIGHLIGHT_IN);
         }
     }
@@ -1866,7 +2139,16 @@ void drawSequenceUI()
     glColor3f(0.15f, 0.5f, 0.9f);
     drawQuad(cx - w / 2, cy + h / 2 - 0.03f, cx + w / 2, cy + h / 2);
     glColor3f(1, 1, 1);
-    drawString("BUILD PATH", cx - 0.15f, cy + h / 2 - 0.022f, FONT_SCALE_LARGE);
+    
+
+    if (currentSequenceIsHazard)
+    {
+        std::string hazardText = "HAZARD: " + std::to_string(totalHazardSequences - hazardSequencesRemaining + 1) + " / " + std::to_string(totalHazardSequences);
+        drawString(hazardText.c_str(), cx - 0.15f, cy + h / 2 - 0.022f, FONT_SCALE_LARGE);
+    }
+    else
+        drawString("BUILD PATH", cx - 0.15f, cy + h / 2 - 0.022f, FONT_SCALE_LARGE);
+
 
     float arrowY = cy - 0.01f;
     int numArrows = (int)sequence.size();
@@ -1887,7 +2169,7 @@ void drawSequenceUI()
             animScale *= pulse;
         }
 
-        drawArrowShape(px, arrowY, sequence[i].dir, sequence[i].result, ARROW_DISPLAY_SIZE, animScale);
+        drawArrowShape(px, arrowY, sequence[i].dir, sequence[i].result, ARROW_DISPLAY_SIZE, animScale, sequence[i].isFake);
     }
 
     if (inSequence && stepWaitingForInput && seqIdx < (int)sequence.size())
@@ -1911,6 +2193,16 @@ void drawSequenceUI()
         glColor3f(1.0f, 0.7f, 0.2f); // Bad
         drawQuad(barX + barW * goodP, barY - barH, barX + barW, barY + barH);
 
+    
+        if (sequence[seqIdx].isFake)
+        {
+            glColor3f(1.0f, 0.2f, 0.2f);
+            drawQuad(barX, barY - barH, barX + barW, barY + barH);
+            
+            glColor3f(1.0f, 1.0f, 1.0f);
+            drawString("WAIT!", cx - 0.05f, barY + 0.02f, FONT_SCALE_LARGE);
+        }
+
         int dt = glutGet(GLUT_ELAPSED_TIME) - stepStartTimeMs;
         float progress = (float)dt / (float)currentBadMs;
         if (progress > 1.0f)
@@ -1930,15 +2222,15 @@ void displayHUD()
     float lineH = 0.06f; 
 
     glColor3f(1, 1, 1);
-    drawString("ESC: Menu | A/D/Arrows: Select | SPACE: Action", hudX, hudY, FONT_SCALE_LARGE);
+    drawString("ESC: Menu | A/D/Arrows: Select | SPACE: Action", hudX, hudY, FONT_SCALE_XLARGE); // 
     hudY -= lineH;
 
     std::string levelText = "Anomaly Level: " + std::to_string(currentLevel);
-    drawString(levelText.c_str(), hudX, hudY, FONT_SCALE_LARGE);
+    drawString(levelText.c_str(), hudX, hudY, FONT_SCALE_XLARGE); // 
     hudY -= lineH;
 
-    drawString("Energy:", hudX, hudY, FONT_SCALE_LARGE);
-    float energyX = hudX + 0.22f;
+    drawString("Energy:", hudX, hudY, FONT_SCALE_XLARGE); // 
+    float energyX = hudX + 0.30f; // 
     float energyRadius = 0.02f;
     float energySpacing = 0.05f;
     float pulse = 0.5f + 0.5f * (1.0f + sinf(glutGet(GLUT_ELAPSED_TIME) * 0.004f));
@@ -1956,80 +2248,18 @@ void displayHUD()
 
     if (gameMessageTimer > 0.0f)
     {
-        if (isGameOver)
-            glColor3f(1.0f, 0.2f, 0.2f);
+       
+        float alpha = std::min(1.0f, gameMessageTimer / 0.5f); // Fade out over last 0.5s
+
+        if (gameWon)
+            glColor4f(0.2f, 1.0f, 0.3f, alpha); // Green
+        else if (isGameOver)
+            glColor4f(1.0f, 0.2f, 0.2f, alpha); // Red
         else
-            glColor3f(1.0f, 0.9f, 0.2f);
-        drawString(gameMessage.c_str(), -0.6f, 0.0f, FONT_SCALE_LARGE);
+            glColor4f(1.0f, 0.9f, 0.2f, alpha); // Yellow
+        
+        drawString(gameMessage.c_str(), -0.6f, 0.0f, FONT_SCALE_XLARGE); 
     }
-    if (gameWon)
-    {
-        glColor3f(0.2f, 1.0f, 0.3f);
-        drawString(("LEVEL " + std::to_string(currentLevel) + " COMPLETE! Press SPACE.").c_str(), -0.7f, 0.1f, FONT_SCALE_LARGE);
-    }
-
-    // --- Legend ---
-    float legendX = -screenAspect + 0.05f;
-    float legendY = -0.40f;
-    float legendSpacing = 0.06f;
-    float legendIconSize = 0.025f;
-    float legendTextX = legendX + 0.06f;
-    float textYOff = -0.012f;
-
-    glColor3f(1.0f, 1.0f, 1.0f);
-    drawString("WATCH OUT:", legendX, legendY, FONT_SCALE_LARGE);
-    legendY -= (legendSpacing * 1.2f);
-
-    drawAvatarShape(legendX + legendIconSize * 0.5f, legendY, legendIconSize * 0.9f);
-    glColor3f(1.0f, 1.0f, 1.0f);
-    drawString("You", legendTextX, legendY + textYOff, FONT_SCALE_LARGE);
-    legendY -= legendSpacing;
-
-    glColor3f(0.95f, 0.95f, 0.95f);
-    drawCircle(legendX + legendIconSize * 0.5f, legendY, NODE_RADIUS_UNVISITED * 0.6f);
-    drawString("Unknown Node", legendTextX, legendY + textYOff, FONT_SCALE_LARGE);
-    legendY -= legendSpacing;
-
-    glColor3f(0.22f, 0.45f, 0.85f);
-    drawCircle(legendX + legendIconSize * 0.5f, legendY, NODE_RADIUS_VISITED * 0.6f);
-    drawString("Cracked Node", legendTextX, legendY + textYOff, FONT_SCALE_LARGE);
-    legendY -= legendSpacing;
-
-    glColor3f(0.4f, 1.0f, 0.5f);
-    drawRing(legendX + legendIconSize * 0.5f, legendY, NODE_RING_HIGHLIGHT_OUT * 0.5f, NODE_RING_HIGHLIGHT_IN * 0.5f);
-    glColor3f(1.0f, 1.0f, 1.0f);
-    drawString("Target Node", legendTextX, legendY + textYOff, FONT_SCALE_LARGE);
-    legendY -= legendSpacing;
-
-    drawNodeIcon(ICON_KEY, legendX + legendIconSize * 0.5f, legendY);
-    glColor3f(1.0f, 1.0f, 1.0f);
-    drawString("Decrypter Key", legendTextX, legendY + textYOff, FONT_SCALE_LARGE);
-    legendY -= legendSpacing;
-
-    drawNodeIcon(ICON_LOCK, legendX + legendIconSize * 0.5f, legendY);
-    glColor3f(1.0f, 1.0f, 1.0f);
-    drawString("Encrypted Node", legendTextX, legendY + textYOff, FONT_SCALE_LARGE);
-    legendY -= legendSpacing;
-
-    glColor3f(1.0f, 0.9f, 0.3f);
-    drawNodeIcon(ICON_REWARD, legendX + legendIconSize * 0.5f, legendY);
-    glColor3f(1.0f, 1.0f, 1.0f);
-    drawString("Energy Cell", legendTextX, legendY + textYOff, FONT_SCALE_LARGE);
-    legendY -= legendSpacing;
-
-    glColor3f(1.0f, 0.3f, 0.3f);
-    drawCircle(legendX + legendIconSize * 0.5f, legendY, NODE_RADIUS_UNVISITED * 0.6f);
-    drawNodeIcon(ICON_HAZARD, legendX + legendIconSize * 0.5f, legendY);
-    glColor3f(1.0f, 1.0f, 1.0f);
-    drawString("Hazard Node", legendTextX, legendY + textYOff, FONT_SCALE_LARGE);
-    legendY -= legendSpacing;
-
-    glColor3f(1.0f, 0.8f, 0.2f);
-    drawCircle(legendX + legendIconSize * 0.5f, legendY, NODE_RADIUS_UNVISITED * 0.6f);
-    drawNodeIcon(ICON_FAST, legendX + 0.005f, legendY);
-    glColor3f(1.0f, 1.0f, 1.0f);
-    drawString("Fast Node", legendTextX, legendY + textYOff, FONT_SCALE_LARGE);
-    legendY -= legendSpacing;
 }
 
 void drawMenu()
@@ -2039,7 +2269,7 @@ void drawMenu()
 
     float cx = -0.7f;
     float cy = 0.5f;
-    float menuSpacing = 0.15f;
+    float menuSpacing = 0.12f; // Tighter spacing for more items
 
     glColor3f(1.0f, 1.0f, 1.0f);
     drawString("THISPATCHED", cx, cy, FONT_SCALE_XLARGE);
@@ -2049,15 +2279,15 @@ void drawMenu()
 
     if (isGameOver)
     {
-        menuItems = { "New Game", "Quit" };
+        menuItems = { "New Game", "Almanac", "Quit" };
     }
     else if (gameInProgress)
     {
-        menuItems = { "Resume Game", "Music Volume", "SFX", "Restart Game", "Quit" };
+        menuItems = { "Resume Game", "Music Volume", "SFX", "Almanac", "Restart Game", "Quit" };
     }
     else
     {
-        menuItems = { "New Game", "Music Volume", "SFX", "Quit" };
+        menuItems = { "New Game", "Music Volume", "SFX", "Almanac", "Quit" };
     }
 
     if (menuSelectedItem >= (int)menuItems.size())
@@ -2087,8 +2317,111 @@ void drawMenu()
     }
 
     glColor3f(0.8f, 0.8f, 0.8f);
-    drawString("Controls: W/S/Arrows to navigate, A/D/Arrows to change, SPACE/Enter to select", cx - 0.3f, cy - (menuItems.size() + 1) * menuSpacing, FONT_SCALE_MEDIUM);
+    drawString("Controls: W/S/Arrows to navigate, A/D/Arrows to change, SPACE/Enter to select", cx - 0.3f, cy - (menuItems.size() + 2) * menuSpacing, FONT_SCALE_MEDIUM);
 }
+
+
+void drawAlmanac()
+{
+    // Darken background
+    glColor4f(0.0f, 0.0f, 0.0f, 0.8f);
+    drawQuad(-screenAspect, -1.0f, screenAspect, 1.0f);
+
+    // Draw "hacker" window
+    float cx = 0.0f, cy = 0.0f, w = 1.6f, h = 1.8f;
+    drawTexturedQuad(cx, cy, w, h, 0.95f);
+    
+    // Title bar
+    glColor3f(0.9f, 0.2f, 0.2f); // Red title bar
+    drawQuad(cx - w / 2, cy + h / 2 - 0.05f, cx + w / 2, cy + h / 2);
+    glColor3f(1, 1, 1);
+    drawString("ALMANAC // SYSTEM TOOLS // NODE_IDENTIFIERS_v3.1", cx - 0.75f, cy + h / 2 - 0.035f, FONT_SCALE_LARGE);
+
+    // Footer
+    glColor3f(0.15f, 0.5f, 0.9f);
+    drawQuad(cx - w / 2, cy - h / 2, cx + w / 2, cy - h / 2 + 0.03f);
+    glColor3f(1, 1, 1);
+    drawString("Press [ESC] or [SPACE] to close", cx - 0.3f, cy - h / 2 + 0.008f, FONT_SCALE_MEDIUM);
+
+    // Content
+    float legendX = -0.7f;
+    float legendY = 0.7f;
+    float legendCol2X = 0.0f;
+    float legendSpacing = 0.08f;
+    float legendIconSize = 0.025f;
+    float legendTextX = legendX + 0.06f;
+    float legendCol2TextX = legendCol2X + 0.06f;
+    float textYOff = -0.012f;
+
+    // Column 1
+    drawAvatarShape(legendX + legendIconSize * 0.5f, legendY, legendIconSize * 0.9f);
+    glColor3f(1.0f, 1.0f, 1.0f);
+    drawString("You (The 'Patch')", legendTextX, legendY + textYOff, FONT_SCALE_LARGE);
+    legendY -= legendSpacing;
+
+    glColor3f(0.95f, 0.95f, 0.95f);
+    drawCircle(legendX + legendIconSize * 0.5f, legendY, NODE_RADIUS_UNVISITED * 0.6f);
+    drawString("Unknown Node", legendTextX, legendY + textYOff, FONT_SCALE_LARGE);
+    legendY -= legendSpacing;
+
+    glColor3f(0.22f, 0.45f, 0.85f);
+    drawCircle(legendX + legendIconSize * 0.5f, legendY, NODE_RADIUS_VISITED * 0.6f);
+    drawString("Cracked Node (Safe)", legendTextX, legendY + textYOff, FONT_SCALE_LARGE);
+    legendY -= legendSpacing;
+
+    glColor3f(0.4f, 1.0f, 0.5f);
+    drawRing(legendX + legendIconSize * 0.5f, legendY, NODE_RING_HIGHLIGHT_OUT * 0.5f, NODE_RING_HIGHLIGHT_IN * 0.5f);
+    glColor3f(1.0f, 1.0f, 1.0f);
+    drawString("Target Node", legendTextX, legendY + textYOff, FONT_SCALE_LARGE);
+    legendY -= legendSpacing;
+
+    drawNodeIcon(ICON_KEY, legendX + legendIconSize * 0.5f, legendY);
+    glColor3f(1.0f, 1.0f, 1.0f);
+    drawString("Decrypter Key", legendTextX, legendY + textYOff, FONT_SCALE_LARGE);
+    legendY -= legendSpacing;
+
+    drawNodeIcon(ICON_LOCK, legendX + legendIconSize * 0.5f, legendY);
+    glColor3f(1.0f, 1.0f, 1.0f);
+    drawString("Encrypted Node (Firewall)", legendTextX, legendY + textYOff, FONT_SCALE_LARGE);
+    legendY -= legendSpacing;
+
+    // Column 2
+    legendY = 0.7f;
+    drawNodeIcon(ICON_REWARD, legendCol2X + legendIconSize * 0.5f, legendY);
+    glColor3f(1.0f, 1.0f, 1.0f);
+    drawString("Energy Cell (+1 Life)", legendCol2TextX, legendY + textYOff, FONT_SCALE_LARGE);
+    legendY -= legendSpacing;
+
+    glColor3f(1.0f, 0.3f, 0.3f);
+    drawCircle(legendCol2X + legendIconSize * 0.5f, legendY, NODE_RADIUS_UNVISITED * 0.6f);
+    drawNodeIcon(ICON_HAZARD, legendCol2X + legendIconSize * 0.5f, legendY);
+    glColor3f(1.0f, 1.0f, 1.0f);
+    drawString("Hazard Node (Multi-Seq)", legendCol2TextX, legendY + textYOff, FONT_SCALE_LARGE);
+    legendY -= legendSpacing;
+
+    glColor3f(1.0f, 0.8f, 0.2f);
+    drawCircle(legendCol2X + legendIconSize * 0.5f, legendY, NODE_RADIUS_UNVISITED * 0.6f);
+    drawNodeIcon(ICON_FAST, legendCol2X + 0.005f, legendY);
+    glColor3f(1.0f, 1.0f, 1.0f);
+    drawString("Fast Node (Half-Time)", legendCol2TextX, legendY + textYOff, FONT_SCALE_LARGE);
+    legendY -= legendSpacing;
+    
+    glColor3f(0.8f, 0.3f, 1.0f);
+    drawCircle(legendCol2X + legendIconSize * 0.5f, legendY, NODE_RADIUS_UNVISITED * 0.6f);
+    drawNodeIcon(ICON_WARP, legendCol2X + legendIconSize * 0.5f, legendY);
+    glColor3f(1.0f, 1.0f, 1.0f);
+    drawString("Warp Node (Shortcut?)", legendCol2TextX, legendY + textYOff, FONT_SCALE_LARGE);
+    legendY -= legendSpacing;
+
+    // Hazard Note
+    legendY -= legendSpacing * 0.5f;
+    glColor3f(1.0f, 0.2f, 0.2f);
+    drawArrowShape(legendCol2X + 0.1f, legendY, ARROW_LEFT, 0, 0.05f, 1.0f, true);
+    drawArrowShape(legendCol2X + 0.18f, legendY, ARROW_RIGHT, 0, 0.05f, 1.0f, true);
+    glColor3f(1.0f, 1.0f, 1.0f);
+    drawString("= FAKE NOTE! DO NOT PRESS!", legendCol2X + 0.25f, legendY - 0.01f, FONT_SCALE_LARGE);
+}
+
 
 // ---------- Draw Game ----------
 void drawGame()
@@ -2096,6 +2429,16 @@ void drawGame()
     glClearColor(0.06f, 0.08f, 0.12f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     glLoadIdentity();
+
+   
+    if (screenShakeTimer > 0.0f)
+    {
+        float shakeAmt = screenShakeTimer * 0.08f;
+        float shakeX = (rand() % 100 / 50.0f - 1.0f) * shakeAmt;
+        float shakeY = (rand() % 100 / 50.0f - 1.0f) * shakeAmt;
+        glTranslatef(shakeX, shakeY, 0.0f);
+    }
+
 
     drawMap();
     drawParticles(); 
@@ -2139,6 +2482,10 @@ void display()
     {
         drawMenu();
     }
+    else if (currentGameState == STATE_ALMANAC) 
+    {
+        drawAlmanac();
+    }
     glutSwapBuffers();
 }
 
@@ -2175,6 +2522,23 @@ void timerFunc(int)
     glutTimerFunc(16, timerFunc, 0);
 }
 
+
+void initLore()
+{
+    loreSnippets.push_back("ANOMALY 1 SOLVED. ...Firewall integrity 70%...");
+    loreSnippets.push_back("ANOMALY 2 SOLVED. ...Log: The anomaly seems to be... learning...?");
+    loreSnippets.push_back("ANOMALY 3 SOLVED. ...Re-routing main power. We can't let it out...");
+    loreSnippets.push_back("ANOMALY 4 SOLVED. ...Patch failed. Again. It's too fast...");
+    loreSnippets.push_back("ANOMALY 5 SOLVED. ...Mainframe patch... THISPATCHED...");
+    loreSnippets.push_back("ANOMALY 6 SOLVED. ...It's not an anomaly. It's a signal...");
+    loreSnippets.push_back("ANOMALY 7 SOLVED. ...Who is on the other side? What do they want?...");
+    loreSnippets.push_back("ANOMALY 8 SOLVED. ...System compromise at 90%. I can't stop it...");
+    loreSnippets.push_back("ANOMALY 9 SOLVED. ...The core is open. It's free...");
+    loreSnippets.push_back("ANOMALY 10 SOLVED. ...Hello, world.");
+}
+
+
+
 // ---------- Main ----------
 int main(int argc, char** argv)
 {
@@ -2182,6 +2546,7 @@ int main(int argc, char** argv)
     glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGBA | GLUT_MULTISAMPLE);
     glutInitWindowSize(windowW, windowH);
     glutCreateWindow("THISPATCHED");
+    glutFullScreen(); 
 
     try
     {
@@ -2209,11 +2574,12 @@ int main(int argc, char** argv)
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glEnable(GL_LINE_SMOOTH);
-    glEnable(GL_POINT_SMOOTH); // For particles
+    glEnable(GL_POINT_SMOOTH);
 
     uiTex = makeProceduralUITexture(256, 64);
+    initLore(); 
 
-    makeMap(9, 1, 3, 1); // Start with Level 1 map
+    makeMap(9, 1, 3, 1);
     gameInProgress = false;
     currentGameState = STATE_MENU;
 
