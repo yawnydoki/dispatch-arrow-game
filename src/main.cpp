@@ -270,7 +270,7 @@ void updateMusicVolume()
 
 void playBackgroundMusic()
 {
-    mciSendString(TEXT("open \"Dispatch - Gristle.wav\" type mpegvideo alias music"), NULL, 0, NULL);
+    mciSendString(TEXT("open \"assets/audio/Dispatch - Gristle.wav\" type mpegvideo alias music"), NULL, 0, NULL);
     mciSendString(TEXT("play music repeat"), NULL, 0, NULL);
     updateMusicVolume();
 }
@@ -906,7 +906,7 @@ void spawnFinalNode()
 
     finalNodeSpawned = true;
     finalNodeIndex = idx;
-    playSFX("Engage.wav");
+    playSFX("assets/audio/Engage.wav");
     setGameMessage("The Final Node has appeared!", 3.0f); 
     spawnParticles(200, fn.x, fn.y, 2.0f, 1.0f, 0.8f, 0.1f);
 }
@@ -942,7 +942,7 @@ void startMoveAnimation(int from, int to)
     player.moveTo = to;
     player.moveStartTimeMs = glutGet(GLUT_ELAPSED_TIME);
     player.moving = true;
-    playSFX("Movement.wav");
+    playSFX("assets/audio/Movement.wav");
 }
 
 void attemptMoveToHighlightedNeighbor()
@@ -951,7 +951,7 @@ void attemptMoveToHighlightedNeighbor()
         return;
     if (player.highlightedNeighbor == -1)
     {
-        playSFX("Mistake.wav");
+        playSFX("assets/audio/Mistake.wav");
         return;
     }
 
@@ -961,7 +961,7 @@ void attemptMoveToHighlightedNeighbor()
     int linkCount = (int)nodes[player.currentNode].links.size();
     if (linkCount == 0)
     {
-        playSFX("Mistake.wav");
+        playSFX("assets/audio/Mistake.wav");
         return;
     }
 
@@ -989,7 +989,7 @@ void attemptMoveToHighlightedNeighbor()
         seqIdx = 0;
         sequence.clear();
         setGameMessage("Enter Password!", 2.5f); 
-        playSFX("Engage.wav");
+        playSFX("assets/audio/Engage.wav");
         return;
     }
 
@@ -1060,7 +1060,7 @@ void attemptMoveToHighlightedNeighbor()
     inSequence = true;
     stepWaitingForInput = true;
     stepStartTimeMs = glutGet(GLUT_ELAPSED_TIME) + 200;
-    playSFX("Engage.wav");
+    playSFX("assets/audio/Engage.wav");
 }
 
 // ---------- Game Update ----------
@@ -1153,7 +1153,7 @@ void updateGame()
             {
                 sequence[seqIdx].result = 1; // Mark as "perfect"
                 sequence[seqIdx].displayAnim = 1.2f;
-                playSFX("Select.wav"); // Use a neutral "pass" sound
+                playSFX("assets/audio/Select.wav"); // Use a neutral "pass" sound
                 
                 seqIdx++;
                 stepWaitingForInput = false;
@@ -1213,7 +1213,7 @@ void updateGame()
             // --- TIME OUT ---
             sequence[seqIdx].result = -1;
             sequence[seqIdx].displayAnim = 1.2f;
-            playSFX("Mistake.wav");
+            playSFX("assets/audio/Mistake.wav");
             spawnParticles(30, player.x, player.y, 1.0f, 1.0f, 0.2f, 0.2f);
             screenShakeTimer = 0.4f; // Screen shake
 
@@ -1247,7 +1247,7 @@ void updateGame()
             player.moving = false;
             player.x = nodes[player.moveTo].x;
             player.y = nodes[player.moveTo].y;
-            playSFX("Movement.wav");
+            playSFX("assets/audio/Movement.wav");
             
             if (player.moveTo >= 0 && player.moveTo < (int)nodes.size() && nodes[player.moveTo].isFinal)
             {
@@ -1256,7 +1256,7 @@ void updateGame()
                 gameMessage = loreSnippets[currentLevel % loreSnippets.size()];
                 gameMessageTimer = 1000.0f; 
                 gameMessageMaxTimer = 1000.0f; 
-                playSFX("Success.wav");
+                playSFX("assets/audio/Success.wav");
             }
         }
         else
@@ -1281,7 +1281,7 @@ void handlePasswordInput(ArrowDir pressed)
     {
         sequence.push_back({ pressed, 1, 1.2f });
         seqIdx++;
-        playSFX("Success.wav"); 
+        playSFX("assets/audio/Success.wav"); 
 
         if (seqIdx == password.size()) // --- PASSWORD COMPLETE ---
         {
@@ -1293,7 +1293,7 @@ void handlePasswordInput(ArrowDir pressed)
             isPasswordInput = false;
 
             setGameMessage("Firewall Unlocked!", 3.0f); 
-            playSFX("Engage.wav");
+            playSFX("assets/audio/Engage.wav");
             spawnParticles(100, lockNode.x, lockNode.y, 1.5f, 1.0f, 1.0f, 0.2f);
 
             startMoveAnimation(player.currentNode, player.targetNode);
@@ -1315,7 +1315,7 @@ void handlePasswordInput(ArrowDir pressed)
             setGameMessage("Access Denied! Energy: " + std::to_string(playerLives), 3.0f); 
         }
 
-        playSFX("Mistake.wav");
+        playSFX("assets/audio/Mistake.wav");
         screenShakeTimer = 0.4f; // Screen shake
         spawnParticles(30, player.x, player.y, 1.0f, 1.0f, 0.2f, 0.2f);
         inSequence = false;
@@ -1326,7 +1326,7 @@ void handlePasswordInput(ArrowDir pressed)
 
 void generateNextHazardSequence()
 {
-    playSFX("Engage.wav");
+    playSFX("assets/audio/Engage.wav");
     setGameMessage("HAZARD! Sequence " + std::to_string(totalHazardSequences - hazardSequencesRemaining + 1) + " of " + std::to_string(totalHazardSequences), 3.0f); 
 
     std::uniform_int_distribution<int> arrowDist(0, 3);
@@ -1393,13 +1393,13 @@ void handleArrowPress(ArrowDir pressed)
         if (tier == 1) // Perfect
         {
             sequence[seqIdx].result = 1;
-            playSFX("Success.wav");
+            playSFX("assets/audio/Success.wav");
             spawnParticles(10, player.x, player.y, 0.5f, 0.1f, 1.0f, 0.2f);
         }
         else if (tier == 2) // Good
         {
             sequence[seqIdx].result = 2;
-            playSFX("Success.wav");
+            playSFX("assets/audio/Success.wav");
         }
         else if (tier == 3) // Bad
         {
@@ -1411,7 +1411,7 @@ void handleArrowPress(ArrowDir pressed)
             else
             {
                 sequence[seqIdx].result = 3;
-                playSFX("Success.wav");
+                playSFX("assets/audio/Success.wav");
             }
         }
         else
@@ -1424,7 +1424,7 @@ void handleArrowPress(ArrowDir pressed)
     {
         // --- FAILURE ---
         sequence[seqIdx].result = -1;
-        playSFX("Mistake.wav");
+        playSFX("assets/audio/Mistake.wav");
         spawnParticles(30, player.x, player.y, 1.0f, 1.0f, 0.2f, 0.2f);
         screenShakeTimer = 0.5f; 
 
@@ -1598,12 +1598,12 @@ void specialKeys(int key, int x, int y)
         if (key == GLUT_KEY_UP)
         {
             menuSelectedItem = (menuSelectedItem - 1 + numItems) % numItems;
-            playSFX("Select.wav");
+            playSFX("assets/audio/Select.wav");
         }
         else if (key == GLUT_KEY_DOWN)
         {
             menuSelectedItem = (menuSelectedItem + 1) % numItems;
-            playSFX("Select.wav");
+            playSFX("assets/audio/Select.wav");
         }
         else if (key == GLUT_KEY_LEFT)
         {
@@ -1611,11 +1611,11 @@ void specialKeys(int key, int x, int y)
             if (item == "Music Volume") {
                 musicVolume = std::max(0, musicVolume - 10);
                 updateMusicVolume();
-                playSFX("Select.wav");
+                playSFX("assets/audio/Select.wav");
             }
             else if (item == "SFX") {
                 sfxEnabled = !sfxEnabled;
-                playSFX("Select.wav");
+                playSFX("assets/audio/Select.wav");
             }
         }
         else if (key == GLUT_KEY_RIGHT)
@@ -1624,11 +1624,11 @@ void specialKeys(int key, int x, int y)
             if (item == "Music Volume") {
                 musicVolume = std::min(100, musicVolume + 10);
                 updateMusicVolume();
-                playSFX("Select.wav");
+                playSFX("assets/audio/Select.wav");
             }
             else if (item == "SFX") {
                 sfxEnabled = !sfxEnabled;
-                playSFX("Select.wav");
+                playSFX("assets/audio/Select.wav");
             }
         }
         glutPostRedisplay();
@@ -1666,12 +1666,12 @@ void specialKeys(int key, int x, int y)
         if (key == GLUT_KEY_LEFT) {
             player.highlightedNeighbor--;
             clampHighlightedNeighbor();
-            playSFX("Select.wav");
+            playSFX("assets/audio/Select.wav");
         }
         if (key == GLUT_KEY_RIGHT) {
             player.highlightedNeighbor++;
             clampHighlightedNeighbor();
-            playSFX("Select.wav");
+            playSFX("assets/audio/Select.wav");
         }
         glutPostRedisplay();
         return;
@@ -1744,11 +1744,11 @@ void keyboard(unsigned char k, int x, int y)
 
         if (k == 'w' || k == 'W') {
             menuSelectedItem = (menuSelectedItem - 1 + numItems) % numItems;
-            playSFX("Select.wav");
+            playSFX("assets/audio/Select.wav");
         }
         else if (k == 's' || k == 'S') {
             menuSelectedItem = (menuSelectedItem + 1) % numItems;
-            playSFX("Select.wav");
+            playSFX("assets/audio/Select.wav");
         }
         else if (k == 'a' || k == 'A')
         {
@@ -1756,11 +1756,11 @@ void keyboard(unsigned char k, int x, int y)
             if (item == "Music Volume") {
                 musicVolume = std::max(0, musicVolume - 10);
                 updateMusicVolume();
-                playSFX("Select.wav");
+                playSFX("assets/audio/Select.wav");
             }
             else if (item == "SFX") {
                 sfxEnabled = !sfxEnabled;
-                playSFX("Select.wav");
+                playSFX("assets/audio/Select.wav");
             }
         }
         else if (k == 'd' || k == 'D')
@@ -1769,16 +1769,16 @@ void keyboard(unsigned char k, int x, int y)
             if (item == "Music Volume") {
                 musicVolume = std::min(100, musicVolume + 10);
                 updateMusicVolume();
-                playSFX("Select.wav");
+                playSFX("assets/audio/Select.wav");
             }
             else if (item == "SFX") {
                 sfxEnabled = !sfxEnabled;
-                playSFX("Select.wav");
+                playSFX("assets/audio/Select.wav");
             }
         }
         else if (k == ' ' || k == 13) {
             const std::string& item = menuItems[menuSelectedItem];
-            playSFX("Engage.wav");
+            playSFX("assets/audio/Engage.wav");
             if (item == "New Game") {
                 resetGame();
                 currentGameState = STATE_PLAYING;
@@ -1887,10 +1887,10 @@ void keyboard(unsigned char k, int x, int y)
                     }
                     else if (selfNode.isKey) {
                         setGameMessage("Password not yet discovered!", 2.5f); // 
-                        playSFX("Mistake.wav");
+                        playSFX("assets/audio/Mistake.wav");
                     }
                     else {
-                        playSFX("Mistake.wav"); 
+                        playSFX("assets/audio/Mistake.wav"); 
                     }
                 }
                 else {
@@ -1905,13 +1905,13 @@ void keyboard(unsigned char k, int x, int y)
             if (k == 'a' || k == 'A') {
                 player.highlightedNeighbor--;
                 clampHighlightedNeighbor();
-                playSFX("Select.wav");
+                playSFX("assets/audio/Select.wav");
                 glutPostRedisplay();
             }
             if (k == 'd' || k == 'D') {
                 player.highlightedNeighbor++;
                 clampHighlightedNeighbor();
-                playSFX("Select.wav");
+                playSFX("assets/audio/Select.wav");
                 glutPostRedisplay();
             }
         }
