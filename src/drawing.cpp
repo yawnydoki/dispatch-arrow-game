@@ -374,11 +374,20 @@ void drawMap()
             if (j < (int)i) continue;
 
             bool isPlayerLink = (i == player.currentNode || j == player.currentNode) && !player.moving && !inSequence && !displayingPassword;
-            bool isHighlightLink = (highlightedNodeIndex != -1) && (i == highlightedNodeIndex || j == highlightedNodeIndex) && !player.moving && !inSequence && !displayingPassword;
+            bool isHighlightLink = (highlightedNodeIndex != -1) && ((i == player.currentNode && j == highlightedNodeIndex) || (i == highlightedNodeIndex && j == player.currentNode)) && !player.moving && !inSequence && !displayingPassword;
             bool isWarpLink = (nodes[i].isWarpNode || nodes[j].isWarpNode);
 
-            if (isHighlightLink)
-                glColor3f(0.4f * globalPulse, 1.0f * globalPulse, 0.5f * globalPulse);
+           if (isHighlightLink)
+            {
+                if (nodes[highlightedNodeIndex].visited)
+                {
+                    glColor3f(1.0f * globalPulse, 1.0f * globalPulse, 0.0f);
+                }
+                else
+                {
+                    glColor3f(0.4f * globalPulse, 1.0f * globalPulse, 0.5f * globalPulse);
+                }
+            }
             else if (isPlayerLink)
                 glColor3f(0.6f * globalPulse, 0.75f * globalPulse, 0.9f * globalPulse);
             else if (isWarpLink)
