@@ -6,6 +6,9 @@ Player player;
 std::vector<Particle> particles;
 std::vector<Shockwave> shockwaves;
 
+std::vector<FloatingText> floatingTexts;
+float inputCooldown = 0.0f;
+
 std::vector<Arrow> sequence;
 int seqIdx = 0;
 bool inSequence = false;
@@ -15,7 +18,6 @@ int stepStartTimeMs = 0;
 int playerLives = STARTING_LIVES;
 int currentLevel = 1;
 
-// multi-sequence hazard nodes
 int hazardSequencesRemaining = 0;
 int totalHazardSequences = 0;
 
@@ -59,6 +61,22 @@ float cameraY = 0.0f;
 bool isLevelTransitioning = false;
 float levelTransitionTimer = 0.0f;
 
+Virus virus;
+float virusSpawnTimer = 0.0f;
+
+const char* BGM_FILE = "assets/audio/Dispatch - Gristle.wav"; //
+const char* SFX_MENU_SELECT = "assets/audio/Menu_Select.wav"; //
+const char* SFX_MENU_ENGAGE = "assets/audio/Menu_Engage.wav"; //
+const char* SFX_MOVE_HIGHLIGHT = "assets/audio/Highlight.wav"; // ?
+const char* SFX_MOVE_SUCCESS = "assets/audio/Move_Success.wav"; //
+const char* SFX_TIMING_PERFECT = "assets/audio/Timing_Perfect.wav";
+const char* SFX_TIMING_GOOD = "assets/audio/Timing_Good.wav";
+const char* SFX_TIMING_FAIL = "assets/audio/Timing_Fail.wav";  //
+const char* SFX_UNLOCK = "assets/audio/Unlock.wav";  //
+const char* SFX_VIRUS_WARNING = "assets/audio/Warning.wav";
+const char* SFX_FINAL_NODE_SPAWN = "assets/audio/Spawn.wav"; 
+
+
 void setGameMessage(const std::string& msg, float duration)
 {
     gameMessage = msg;
@@ -74,4 +92,33 @@ std::vector<std::string> getMenuItems()
         return { "Resume Game", "Restart Game", "Codex", "Music Volume", "SFX", "Quit" };
     else
         return { "New Game", "Codex", "Music Volume", "SFX", "Quit" };
+}
+
+void spawnFloatingText(const std::string& text, float x, float y, float r, float g, float b, float scale)
+{
+    FloatingText ft;
+    ft.text = text;
+    ft.x = x;
+    ft.y = y;
+    ft.r = r; ft.g = g; ft.b = b;
+    ft.life = 1.0f;
+    ft.maxLife = 1.0f;
+    ft.scale = scale;
+    floatingTexts.push_back(ft);
+}
+
+void updateFloatingTexts(float dt)
+{
+    for (size_t i = 0; i < floatingTexts.size(); )
+    {
+        floatingTexts[i].life -= dt * 1.5f; // fade speed
+        floatingTexts[i].y += dt * 0.2f;    // float up
+        
+        if (floatingTexts[i].life <= 0.0f) {
+            floatingTexts[i] = floatingTexts.back();
+            floatingTexts.pop_back();
+        } else {
+            i++;
+        }
+    }
 }

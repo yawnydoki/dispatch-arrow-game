@@ -9,6 +9,7 @@
 #include "types.h"
 #include "constants.h"
 
+// defined in game.cpp
 extern std::vector<Node> nodes;
 extern Player player;
 extern std::vector<Particle> particles;
@@ -47,14 +48,22 @@ extern std::vector<std::string> loreSnippets;
 extern float gameMessageMaxTimer;
 extern std::vector<Shockwave> shockwaves;
 
-// cam
+// Camera
 extern float cameraX;
 extern float cameraY;
 
-// transitioning between levels
+// Transition
 extern bool isLevelTransitioning;
 extern float levelTransitionTimer;
 
+// virus
+extern Virus virus;
+extern float virusSpawnTimer;
+
+extern std::vector<FloatingText> floatingTexts;
+extern float inputCooldown;
+
+// core funcs
 void setGameMessage(const std::string& msg, float duration = 2.0f);
 std::vector<std::string> getMenuItems();
 void resetGame();
@@ -70,7 +79,10 @@ void makeMap(int numNodes, int minLinks, int maxLinks, int numLocks);
 void initLore();
 void updateShockwaves(float dt);
 
-// for drawing
+void spawnFloatingText(const std::string& text, float x, float y, float r, float g, float b, float scale = 1.0f);
+void updateFloatingTexts(float dt);
+
+// Drawing
 void drawString(const char* s, float x, float y, float scale);
 void drawCircle(float cx, float cy, float r, int seg = 32);
 void drawRing(float cx, float cy, float ro, float ri, int seg = 32);
@@ -86,20 +98,21 @@ void drawAlmanac();
 void drawShockwaves();
 void drawPlayerTrail();
 void drawWarpEffect(); 
-
-// minimap
+void drawVirus(float x, float y);
 void drawMiniMap();
+void drawFloatingTexts();
 
 // particle funcs
 void spawnParticles(int count, float x, float y, float initialSpeed, float r, float g, float b);
 void updateParticles(float dt);
 void drawParticles();
 
-//sound func
+// sound func
 void updateMusicVolume();
 void playBackgroundMusic();
 void playSFX(const char* file);
 
+// main loop handlers
 void display();
 void reshape(int w, int h);
 void keyboard(unsigned char k, int x, int y);
