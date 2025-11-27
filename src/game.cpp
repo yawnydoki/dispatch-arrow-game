@@ -9,6 +9,16 @@ std::vector<Shockwave> shockwaves;
 std::vector<FloatingText> floatingTexts;
 float inputCooldown = 0.0f;
 
+int g_mouseX = 0;
+int g_mouseY = 0;
+
+void passiveMouse(int x, int y)
+{
+    g_mouseX = x;
+    g_mouseY = y;
+}
+
+
 std::vector<Arrow> sequence;
 int seqIdx = 0;
 bool inSequence = false;

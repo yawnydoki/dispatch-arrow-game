@@ -75,6 +75,7 @@ int main(int argc, char** argv)
     glutKeyboardFunc(keyboard);
     glutSpecialFunc(specialKeys);
     glutReshapeFunc(reshape);
+    glutPassiveMotionFunc(passiveMouse);
 
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);

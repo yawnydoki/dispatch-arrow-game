@@ -667,6 +667,30 @@ void updateGame()
     float targetCamX = player.x;
     float targetCamY = player.y;
 
+    if (currentGameState == STATE_PLAYING)
+    {
+        float peekZone = 0.1f; // 10% of screen edge
+        float peekAmount = 0.5f;
+        float mouseX_norm = (float)g_mouseX / windowW;
+        float mouseY_norm = 1.0f - (float)g_mouseY / windowH;
+
+        float peekX = 0.0f, peekY = 0.0f;
+
+        if (mouseX_norm < peekZone)
+            peekX = -peekAmount * (1.0f - mouseX_norm / peekZone);
+        else if (mouseX_norm > 1.0f - peekZone)
+            peekX = peekAmount * (1.0f - (1.0f - mouseX_norm) / peekZone);
+
+        if (mouseY_norm < peekZone)
+            peekY = -peekAmount * (1.0f - mouseY_norm / peekZone);
+        else if (mouseY_norm > 1.0f - peekZone)
+            peekY = peekAmount * (1.0f - (1.0f - mouseY_norm) / peekZone);
+
+        targetCamX += peekX;
+        targetCamY += peekY;
+    }
+
+
     if (player.moving && player.moveTo != -1) {
         float leadFactor = 0.3f;
         targetCamX = player.x * (1.0f - leadFactor) + nodes[player.moveTo].x * leadFactor;

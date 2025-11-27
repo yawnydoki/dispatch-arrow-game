@@ -63,7 +63,10 @@ extern float virusSpawnTimer;
 extern std::vector<FloatingText> floatingTexts;
 extern float inputCooldown;
 
+extern int g_mouseX, g_mouseY;
+
 // core funcs
+void passiveMouse(int x, int y);
 void setGameMessage(const std::string& msg, float duration = 2.0f);
 std::vector<std::string> getMenuItems();
 void resetGame();
