@@ -58,13 +58,13 @@ struct Node
     NodeType type = NODE_NORMAL;
     bool isFinal = false;
 
-    // lock n key system
+    // Lock and Key system
     bool isLocked = false;
     bool isKey = false;
     int keyNode = -1;
     int lockNode = -1;
     std::vector<ArrowDir> password;
-    bool isTargetOfKey = false; // is the node linked to a known key???
+    bool isTargetOfKey = false; // is the node linked to a known key
     bool isWarpNode = false;
 };
 
@@ -97,6 +97,27 @@ struct Shockwave
     float x, y;
     float radius;
     float alpha;
+};
+
+struct Virus
+{
+    int currentNode = -1; // -1 means inactive/not spawned
+    bool active = false;
+    float moveTimer = 0.0f;
+    float x = 0, y = 0; 
+    
+    bool isAttacking = false;
+    float attackTimer = 0.0f;
+};
+
+struct FloatingText
+{
+    float x, y;
+    std::string text;
+    float r, g, b;
+    float life; // 0.0 to 1.0
+    float maxLife;
+    float scale;
 };
 
 #endif // TYPES_H

@@ -29,7 +29,7 @@ const int PLAYER_AVATAR_SIDES = 6;
 const float PLAYER_AVATAR_SPIN_SPEED = 180.0f; // deg/sec
 const float PLAYER_AVATAR_TURN_SPEED = 0.2f; // 20% lerp per frame
 
-// ui/hud rendering
+// rendering ui hud
 const float ARROW_DISPLAY_SIZE = 0.07f;
 const float ARROW_UI_X_SPACING = 0.12f;
 const float ARROW_UI_POS_Y = 0.55f;
@@ -37,6 +37,19 @@ const float ARROW_UI_POS_Y = 0.55f;
 const float FONT_SCALE_MEDIUM = 0.00016f;
 const float FONT_SCALE_LARGE = 0.00022f;
 const float FONT_SCALE_XLARGE = 0.0003f;
+
+// sfx
+extern const char* BGM_FILE;
+extern const char* SFX_MENU_SELECT;        // highlight/menu movement
+extern const char* SFX_MENU_ENGAGE;        // Menu selection / Start sequence
+extern const char* SFX_MOVE_HIGHLIGHT;       // Left/Right selection on map
+extern const char* SFX_MOVE_SUCCESS;      // after sequence or simple move
+extern const char* SFX_TIMING_PERFECT;  // Perfect hit
+extern const char* SFX_TIMING_GOOD;        // Good/Okay hit
+extern const char* SFX_TIMING_FAIL;        // Failed sequence / Damage taken / Error
+extern const char* SFX_UNLOCK;                  // Firewall unlocked
+extern const char* SFX_VIRUS_WARNING;
+extern const char* SFX_FINAL_NODE_SPAWN;         // finish node
 
 // particle system
 const float PARTICLE_DRAG = 0.98f;
@@ -47,11 +60,18 @@ const float MAP_WIDTH = 3.5f;  // half width (total width is 7.0)
 const float MAP_HEIGHT = 3.5f; // half height
 const float CAMERA_LERP_SPEED = 0.08f; // how fast camera follows player
 
-const float MINIMAP_SIZE = 0.55f; // 
-const float MINIMAP_OFFSET_X = 0.05f; // right padding
-const float MINIMAP_OFFSET_Y = 0.05f; // bottom padding
-const float MINIMAP_OPACITY = 0.8f;   // dark bg
+// minimap
+const float MINIMAP_SIZE = 0.55f; 
+const float MINIMAP_OFFSET_X = 0.05f; 
+const float MINIMAP_OFFSET_Y = 0.05f; 
+const float MINIMAP_OPACITY = 0.8f;   
 
-const float WARP_DURATION = 2.0f; // secs
+// transition / tp to next level
+const float WARP_DURATION = 2.0f; 
+
+// virus
+const float VIRUS_SPAWN_DELAY = 30.0f; 
+const float VIRUS_MOVE_INTERVAL = 3.0f; // seconds per step
+const float VIRUS_ATTACK_DELAY = 1.5f;  // time required to stay on player to damage
 
 #endif // CONSTANTS_H

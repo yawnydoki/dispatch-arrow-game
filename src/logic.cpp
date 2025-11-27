@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <map>
+#include <queue>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -19,6 +20,7 @@ void resetGame()
 {
     currentLevel = 1;
     playerLives = STARTING_LIVES;
+
     makeMap(15, 1, 3, 1);
     inSequence = false;
     sequence.clear();
@@ -30,6 +32,16 @@ void resetGame()
     gameInProgress = true;
     isLevelTransitioning = false; 
     levelTransitionTimer = 0.0f;
+
+    virus.active = false;
+    // 60s base, decreases by 5s per level, min 10s
+    float spawnTime = 60.0f - ((currentLevel - 1) * 5.0f);
+    virusSpawnTimer = std::max(10.0f, spawnTime);
+    
+    virus.isAttacking = false;
+    virus.attackTimer = VIRUS_ATTACK_DELAY;
+    
+    floatingTexts.clear();
     
     setGameMessage("New Game Started!", 2.5f);
 
@@ -69,7 +81,7 @@ void startMoveAnimation(int from, int to)
     player.moveTo = to;
     player.moveStartTimeMs = glutGet(GLUT_ELAPSED_TIME);
     player.moving = true;
-    playSFX("assets/audio/Movement.wav");
+    playSFX(SFX_MOVE_SUCCESS); 
 }
 
 static void startRhythmSequence(int targetNodeIndex)
@@ -132,7 +144,7 @@ static void startRhythmSequence(int targetNodeIndex)
     inSequence = true;
     stepWaitingForInput = true;
     stepStartTimeMs = glutGet(GLUT_ELAPSED_TIME) + 200; 
-    playSFX("assets/audio/Engage.wav");
+    playSFX(SFX_MENU_ENGAGE);
 }
 
 void attemptMoveToHighlightedNeighbor()
@@ -141,7 +153,7 @@ void attemptMoveToHighlightedNeighbor()
         return;
     if (player.highlightedNeighbor == -1)
     {
-        playSFX("assets/audio/Mistake.wav");
+        playSFX(SFX_TIMING_FAIL);
         return;
     }
 
@@ -169,7 +181,7 @@ void attemptMoveToHighlightedNeighbor()
         seqIdx = 0;
         sequence.clear();
         setGameMessage("Enter Password!", 2.5f);
-        playSFX("assets/audio/Engage.wav");
+        playSFX(SFX_MENU_ENGAGE);
         return;
     }
 
@@ -178,7 +190,7 @@ void attemptMoveToHighlightedNeighbor()
 
 void generateNextHazardSequence()
 {
-    playSFX("assets/audio/Engage.wav");
+    playSFX(SFX_MENU_ENGAGE);
     setGameMessage("HAZARD! Sequence " + std::to_string(totalHazardSequences - hazardSequencesRemaining + 1) + " of " + std::to_string(totalHazardSequences), 3.0f);
 
     std::uniform_int_distribution<int> arrowDist(0, 3);
@@ -210,9 +222,11 @@ static void handleSequenceFailure(bool passwordFail = false)
         sequence[seqIdx].displayAnim = 1.2f;
     }
 
-    playSFX("assets/audio/Mistake.wav");
+    playSFX(SFX_TIMING_FAIL); 
     spawnParticles(30, player.x, player.y, 1.0f, 1.0f, 0.2f, 0.2f);
     screenShakeTimer = 0.5f;
+    
+    spawnFloatingText(passwordFail ? "DENIED" : "MISS!", player.x, player.y + 0.1f, 1.0f, 0.2f, 0.2f, 1.5f);
 
     playerLives--;
     if (playerLives <= 0)
@@ -273,6 +287,7 @@ static void finishSequenceSuccess()
             playerLives++;
             setGameMessage("Energy Cell Added! (Energy: " + std::to_string(playerLives) + ")", 3.0f);
             target.type = NODE_NORMAL;
+            spawnFloatingText("+ENERGY", target.x, target.y + 0.1f, 0.2f, 1.0f, 1.0f, 1.2f);
         }
         else if (target.type == NODE_WARP && !target.visited)
         {
@@ -346,7 +361,7 @@ void handlePasswordInput(ArrowDir pressed)
     {
         sequence.emplace_back(pressed, 1, 1.2f);
         seqIdx++;
-        playSFX("assets/audio/Success.wav");
+        playSFX(SFX_TIMING_GOOD); 
 
         if (seqIdx == password.size())
         {
@@ -359,7 +374,8 @@ void handlePasswordInput(ArrowDir pressed)
             isPasswordInput = false;
 
             setGameMessage("Firewall Unlocked!", 3.0f);
-            playSFX("assets/audio/Engage.wav");
+            spawnFloatingText("UNLOCKED", lockNode.x, lockNode.y + 0.15f, 0.2f, 1.0f, 0.2f, 1.5f);
+            playSFX(SFX_UNLOCK); 
             spawnParticles(100, lockNode.x, lockNode.y, 1.5f, 1.0f, 1.0f, 0.2f);
 
             startMoveAnimation(player.currentNode, player.targetNode);
@@ -417,9 +433,20 @@ void handleArrowPress(ArrowDir pressed)
             else
             {
                 sequence[seqIdx].result = tier;
-                playSFX("assets/audio/Success.wav");
-                if (tier == 1)
+                
+                if (tier == 1) {
+                    playSFX(SFX_TIMING_PERFECT);
                     spawnParticles(10, player.x, player.y, 0.5f, 0.1f, 1.0f, 0.2f);
+                    spawnFloatingText("PERFECT", player.x, player.y + 0.1f, 0.2f, 1.0f, 0.5f, 1.2f);
+                }
+                else if (tier == 2) {
+                    playSFX(SFX_TIMING_GOOD);
+                    spawnFloatingText("GOOD", player.x, player.y + 0.1f, 0.8f, 1.0f, 0.2f, 1.0f);
+                }
+                else if (tier == 3) {
+                    playSFX(SFX_TIMING_GOOD); 
+                    spawnFloatingText("OKAY", player.x, player.y + 0.1f, 1.0f, 0.8f, 0.2f, 0.8f);
+                }
             }
         }
         else sequenceFailed = true; 
@@ -447,6 +474,138 @@ void handleArrowPress(ArrowDir pressed)
     }
 }
 
+// virus logc and attack
+void updateVirus(float dt)
+{
+    if (!virus.active)
+    {
+        virusSpawnTimer -= dt;
+        if (virusSpawnTimer <= 0.0f)
+        {
+            // spawn virus at farthest node from player
+            int farNode = -1;
+            float maxDist = 0.0f;
+            for(size_t i=0; i<nodes.size(); ++i) {
+                float d = std::hypot(nodes[i].x - player.x, nodes[i].y - player.y);
+                if(d > maxDist) { maxDist = d; farNode = (int)i; }
+            }
+            
+            if (farNode != -1) {
+                virus.currentNode = farNode;
+                virus.x = nodes[farNode].x;
+                virus.y = nodes[farNode].y;
+                virus.active = true;
+                virus.moveTimer = VIRUS_MOVE_INTERVAL;
+                virus.isAttacking = false;
+                virus.attackTimer = VIRUS_ATTACK_DELAY;
+                
+                setGameMessage("WARNING: VIRUS DETECTED!", 3.0f);
+                playSFX(SFX_VIRUS_WARNING); 
+            }
+        }
+        return;
+    }
+
+    // movement
+    Node& currentVNode = nodes[virus.currentNode];
+    float lerpSpeed = 2.0f;
+    virus.x += (currentVNode.x - virus.x) * lerpSpeed * dt;
+    virus.y += (currentVNode.y - virus.y) * lerpSpeed * dt;
+
+    if (std::hypot(currentVNode.x - virus.x, currentVNode.y - virus.y) > 0.01f) {
+        virus.x += (rand()%100 / 5000.0f - 0.01f); 
+        virus.y += (rand()%100 / 5000.0f - 0.01f);
+    }
+
+    // attack logic
+    bool isOnPlayer = (virus.currentNode == player.currentNode);
+    
+    if (isOnPlayer)
+    {
+        virus.isAttacking = true;
+        virus.attackTimer -= dt;
+        
+        if (virus.attackTimer <= 0.0f)
+        {
+            playerLives--;
+            setGameMessage("VIRUS CORRUPTION! NODE LOST.", 2.0f);
+            
+            // visuals
+            spawnParticles(50, player.x, player.y, 2.0f, 1.0f, 0.0f, 0.0f);
+            screenShakeTimer = 0.5f;
+            playSFX(SFX_TIMING_FAIL);
+
+            if (player.currentNode != -1) {
+                nodes[player.currentNode].visited = false; 
+            }
+
+            if (playerLives <= 0) {
+                isGameOver = true;
+                setGameMessage("TERMINATED BY VIRUS.", 1000.0f);
+            } else {
+                virus.active = false;
+                virusSpawnTimer = 60.0f - ((currentLevel - 1) * 5.0f); 
+            }
+        }
+    }
+    else
+    {
+        virus.isAttacking = false;
+        virus.attackTimer = VIRUS_ATTACK_DELAY;
+        
+        virus.moveTimer -= dt;
+        if (virus.moveTimer <= 0.0f)
+        {
+            virus.moveTimer = VIRUS_MOVE_INTERVAL;
+
+            int bestNext = -1;
+            int shortestDist = 9999;
+
+            std::vector<int> dist(nodes.size(), 9999);
+            std::queue<int> q;
+            
+            int target = player.moving ? player.moveTo : player.currentNode;
+            if (target < 0 || target >= nodes.size()) target = 0; 
+
+            q.push(target);
+            dist[target] = 0;
+            
+            while(!q.empty()) {
+                int u = q.front(); q.pop();
+                if (dist[u] > shortestDist) continue; 
+
+                for(int v : nodes[u].links) {
+                    if(dist[v] == 9999) {
+                        dist[v] = dist[u] + 1;
+                        q.push(v);
+                    }
+                }
+            }
+
+            for(int neighbor : nodes[virus.currentNode].links) {
+                if(dist[neighbor] < shortestDist) {
+                    shortestDist = dist[neighbor];
+                    bestNext = neighbor;
+                }
+            }
+    
+            if (bestNext == -1 && !nodes[virus.currentNode].links.empty()) {
+                 bestNext = nodes[virus.currentNode].links[rng() % nodes[virus.currentNode].links.size()];
+            }
+
+            if (bestNext != -1) {
+                virus.currentNode = bestNext;
+              
+                float dx = nodes[virus.currentNode].x - cameraX;
+                float dy = nodes[virus.currentNode].y - cameraY;
+                if (fabs(dx) < screenAspect && fabs(dy) < 1.0f) {
+                    playSFX(SFX_MOVE_HIGHLIGHT);
+                }
+            }
+        }
+    }
+}
+
 void updateGame()
 {
     if (isGameOver)
@@ -455,29 +614,34 @@ void updateGame()
     int now = glutGet(GLUT_ELAPSED_TIME);
     float dt = 0.016f; 
 
+    if (inputCooldown > 0.0f) inputCooldown -= dt;
+
     updateParticles(dt);
     updateShockwaves(dt);
+    
+    updateFloatingTexts(dt);
+    
+    if (!isLevelTransitioning)
+        updateVirus(dt);
 
     if (isLevelTransitioning)
     {
         levelTransitionTimer -= dt;
         
         if (rng() % 2 == 0) {
-            // cyan warp particles
             spawnParticles(2, player.x, player.y, 5.0f, 0.2f, 1.0f, 1.0f); 
         }
 
         if (levelTransitionTimer <= 0.0f)
         {
-            // level switch
             currentLevel++;
             int numNodes = std::min(30, 8 + currentLevel);
             int numLocks = std::min(5, 1 + (currentLevel / 2));
             int maxLinks = std::min(4, 2 + currentLevel / 3);
-            playerLives = STARTING_LIVES + (currentLevel / 3); // bonus health (+1 hp)
+            playerLives = STARTING_LIVES + (currentLevel / 3); 
             
             makeMap(numNodes, 1, maxLinks, numLocks);
-    
+            
             inSequence = false;
             sequence.clear();
             player.targetNode = -1;
@@ -487,7 +651,14 @@ void updateGame()
             finalNodeIndex = -1;
             gameInProgress = true;
             isLevelTransitioning = false;
+           
+            virus.active = false;
+            float spawnTime = 60.0f - ((currentLevel - 1) * 5.0f);
+            virusSpawnTimer = std::max(10.0f, spawnTime);
+            virus.isAttacking = false;
             
+            floatingTexts.clear();
+
             setGameMessage("Level " + std::to_string(currentLevel) + "!", 3.0f);
         }
         return; 
@@ -496,29 +667,22 @@ void updateGame()
     float targetCamX = player.x;
     float targetCamY = player.y;
 
-    if (!player.moving && !inSequence && player.highlightedNeighbor != -1 && nodes.size() > 0)
-    {
+    if (player.moving && player.moveTo != -1) {
+        float leadFactor = 0.3f;
+        targetCamX = player.x * (1.0f - leadFactor) + nodes[player.moveTo].x * leadFactor;
+        targetCamY = player.y * (1.0f - leadFactor) + nodes[player.moveTo].y * leadFactor;
+    }
+    else if (!player.moving && !inSequence && player.highlightedNeighbor != -1) {
         clampHighlightedNeighbor();
-        if (player.highlightedNeighbor >= 0)
-        {
+        if (player.highlightedNeighbor >= 0) {
             int neighborIdx = nodes[player.currentNode].links[player.highlightedNeighbor];
             Node& target = nodes[neighborIdx];
-            
-            targetCamX = player.x * 0.6f + target.x * 0.4f;
-            targetCamY = player.y * 0.6f + target.y * 0.4f;
-        }
-    }
-    else if (player.moving)
-    {
-        if (player.moveTo >= 0 && player.moveTo < nodes.size())
-        {
-            Node& dest = nodes[player.moveTo];
-            targetCamX = dest.x;
-            targetCamY = dest.y;
+            targetCamX = player.x * 0.7f + target.x * 0.3f;
+            targetCamY = player.y * 0.7f + target.y * 0.3f;
         }
     }
 
-    float camSpeed = 0.1f; 
+    float camSpeed = 0.08f; 
     cameraX += (targetCamX - cameraX) * camSpeed;
     cameraY += (targetCamY - cameraY) * camSpeed;
 
@@ -536,7 +700,7 @@ void updateGame()
         if (player.highlightedNeighbor != -1)
         {
             int neighborIdx = nodes[player.currentNode].links[player.highlightedNeighbor];
-            Node &target = nodes[neighborIdx];
+            Node& target = nodes[neighborIdx];
             float dx = target.x - player.x;
             float dy = target.y - player.y;
             float targetAngle = atan2(dy, dx) * 180.0f / 3.1415926f;
@@ -602,7 +766,7 @@ void updateGame()
             {
                 sequence[seqIdx].result = 1;
                 sequence[seqIdx].displayAnim = 1.2f;
-                playSFX("assets/audio/Select.wav");
+                playSFX(SFX_MOVE_HIGHLIGHT); 
 
                 seqIdx++;
                 stepWaitingForInput = false;
@@ -634,7 +798,7 @@ void updateGame()
             player.moving = false;
             player.x = nodes[player.moveTo].x;
             player.y = nodes[player.moveTo].y;
-            playSFX("assets/audio/Movement.wav");
+            playSFX(SFX_MOVE_SUCCESS); 
 
             if (player.moveTo == finalNodeIndex && nodes[player.moveTo].isFinal)
             {
@@ -642,7 +806,7 @@ void updateGame()
                 gameMessage = loreSnippets[currentLevel % loreSnippets.size()];
                 gameMessageTimer = 1000.0f;
                 gameMessageMaxTimer = 1000.0f;
-                playSFX("assets/audio/Success.wav");
+                playSFX(SFX_TIMING_PERFECT); 
             }
         }
         else

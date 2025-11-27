@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
+#include <string>
 #include <GL/freeglut.h>
 
 void drawString(const char* s, float x, float y, float scale)
@@ -70,9 +71,8 @@ void drawTexturedQuad(float cx, float cy, float w, float h, float alpha)
     glDisable(GL_TEXTURE_2D);
 }
 
-void drawKeyButton(float x, float y, float w, float h, const char* label, bool pressed = false)
+void drawKeyButton(float x, float y, float w, float h, const char* label, bool pressed)
 {
-   
     if (pressed) glColor4f(0.6f, 0.8f, 1.0f, 0.9f); 
     else glColor4f(0.1f, 0.12f, 0.15f, 0.8f);       
     
@@ -310,10 +310,24 @@ void drawParticles()
     glDisable(GL_POINT_SMOOTH);
 }
 
+void drawFloatingTexts()
+{
+    for (const auto& ft : floatingTexts)
+    {
+        float alpha = ft.life; 
+        glColor4f(ft.r, ft.g, ft.b, alpha);
+        
+        float s = ft.scale * FONT_SCALE_LARGE;
+        if (ft.life > 0.8f) s *= 1.2f; 
+        
+        float width = ft.text.length() * s * 300.0f; 
+        drawString(ft.text.c_str(), ft.x - (width * 0.0005f), ft.y, s);
+    }
+}
+
 void drawBackgroundGrid()
 {
     float time = glutGet(GLUT_ELAPSED_TIME) / 5000.0f;
-
     float scrollX = fmod(cameraX, 0.12f);
     float scrollY = fmod(cameraY, 0.12f);
     float extra = 0.5f; 
@@ -324,7 +338,6 @@ void drawBackgroundGrid()
     glColor4f(0.10f, 0.12f, 0.16f, 1.0f);
     glLineWidth(1.0f);
     glBegin(GL_LINES);
-    
     for (float x = -screenAspect - extra; x <= screenAspect + extra; x += 0.12f)
     {
         glVertex2f(x, -1.0f - extra);
@@ -348,7 +361,6 @@ void drawBackgroundGrid()
         glVertex2f(screenAspect + extra, y + y_offset_near - 0.06f);
     }
     glEnd();
-    
     glPopMatrix();
 }
 
@@ -377,6 +389,7 @@ void drawMap()
             bool isHighlightLink = (highlightedNodeIndex != -1) && ((i == player.currentNode && j == highlightedNodeIndex) || (i == highlightedNodeIndex && j == player.currentNode)) && !player.moving && !inSequence && !displayingPassword;
             bool isWarpLink = (nodes[i].isWarpNode || nodes[j].isWarpNode);
 
+<<<<<<< HEAD
            if (isHighlightLink)
             {
                 if (nodes[highlightedNodeIndex].visited)
@@ -387,6 +400,14 @@ void drawMap()
                 {
                     glColor3f(0.4f * globalPulse, 1.0f * globalPulse, 0.5f * globalPulse);
                 }
+=======
+            if (isHighlightLink)
+            {
+                if (nodes[highlightedNodeIndex].visited)
+                    glColor3f(1.0f * globalPulse, 1.0f * globalPulse, 0.0f);
+                else
+                    glColor3f(0.4f * globalPulse, 1.0f * globalPulse, 0.5f * globalPulse);
+>>>>>>> b52b6cd0b44b087b634938cee31747cee3f65970
             }
             else if (isPlayerLink)
                 glColor3f(0.6f * globalPulse, 0.75f * globalPulse, 0.9f * globalPulse);
@@ -406,7 +427,6 @@ void drawMap()
     {
         float x = nodes[i].x, y = nodes[i].y;
 
-        // target pulse
         if (nodes[i].isTargetOfKey && nodes[i].isLocked)
         {
             float pulse = 0.5f + 0.5f * (1.0f + sinf(glutGet(GLUT_ELAPSED_TIME) * 0.008f));
@@ -425,11 +445,9 @@ void drawMap()
             continue;
         }
 
-        // current player node
         if ((int)i == player.currentNode)
             glColor3f(0.12f, 0.45f, 0.85f), drawRing(x, y, NODE_RING_CURRENT_OUT, NODE_RING_CURRENT_IN);
 
-        // node colors
         if (nodes[i].visited)
             glColor3f(0.22f, 0.45f, 0.85f);
         else if (nodes[i].type == NODE_HAZARD)
@@ -440,6 +458,7 @@ void drawMap()
             glColor3f(0.8f, 0.3f, 1.0f);
         else
             glColor3f(0.95f, 0.95f, 0.95f);
+        
         drawCircle(x, y, nodes[i].visited ? NODE_RADIUS_VISITED : NODE_RADIUS_UNVISITED);
 
         NodeIcon icon = ICON_NONE;
@@ -479,7 +498,35 @@ void drawAvatar(float x, float y)
     drawAvatarShape(x, y, PLAYER_AVATAR_RADIUS, player.avatarAngle);
 }
 
-// off screen indicator func
+void drawVirus(float x, float y)
+{
+    float time = glutGet(GLUT_ELAPSED_TIME) * 0.02f; 
+    float pulse = 1.0f + 0.15f * fabs(sinf(time)); 
+    glPushMatrix();
+    glTranslatef(x, y, 0);
+    glScalef(pulse, pulse, 1);
+    
+    // aura
+    glColor4f(1.0f, 0.0f, 0.0f, 0.6f);
+    drawCircle(0, 0, 0.06f);
+    
+    // core
+    glColor3f(0.2f, 0.0f, 0.0f);
+    drawCircle(0, 0, 0.03f);
+    
+    // spikes
+    glBegin(GL_TRIANGLES);
+    glColor3f(0.8f, 0.0f, 0.0f);
+    for(int i=0; i<8; ++i) {
+        float a = i * 3.14159f / 4.0f + time * 0.5f; 
+        glVertex2f(cos(a)*0.07f, sin(a)*0.07f);
+        glVertex2f(cos(a+0.2f)*0.03f, sin(a+0.2f)*0.03f);
+        glVertex2f(cos(a-0.2f)*0.03f, sin(a-0.2f)*0.03f);
+    }
+    glEnd();
+    glPopMatrix();
+}
+
 void drawOffScreenIndicator(float tx, float ty, NodeIcon icon, NodeType type)
 {
     float relX = tx - cameraX;
@@ -492,7 +539,6 @@ void drawOffScreenIndicator(float tx, float ty, NodeIcon icon, NodeType type)
     if (fabs(relX) < boundX && fabs(relY) < boundY) return; 
 
     float angle = atan2(relY, relX);
-
     float slope = tan(angle);
     float edgeX, edgeY;
     
@@ -529,7 +575,9 @@ void drawOffScreenIndicator(float tx, float ty, NodeIcon icon, NodeType type)
     glTranslatef(drawX, drawY, 0);
     glRotatef(degAngle, 0, 0, 1);
     
-    glColor3f(1.0f, 1.0f, 1.0f);
+    if (icon == ICON_NONE && type == NODE_HAZARD) glColor3f(1.0f, 0.0f, 0.0f); 
+    else glColor3f(1.0f, 1.0f, 1.0f); 
+
     glBegin(GL_TRIANGLE_FAN);
     glVertex2f(0.06f, 0.0f);
     glVertex2f(-0.03f, 0.05f);
@@ -563,7 +611,6 @@ void drawMiniMap()
     float mmX = screenAspect - mmW / 2.0f - MINIMAP_OFFSET_X;
     float mmY = -1.0f + mmH / 2.0f + MINIMAP_OFFSET_Y;
 
-    // outer border
     glColor4f(0.1f, 0.3f, 0.6f, 1.0f);
     glLineWidth(3.0f);
     glBegin(GL_LINE_LOOP);
@@ -573,11 +620,9 @@ void drawMiniMap()
     glVertex2f(mmX - mmW/2 - 0.01f, mmY + mmH/2 + 0.01f);
     glEnd();
 
-    // background
     glColor4f(0.0f, 0.05f, 0.1f, MINIMAP_OPACITY);
     drawQuad(mmX - mmW/2, mmY - mmH/2, mmX + mmW/2, mmY + mmH/2);
     
-    // inner grid lines
     glColor4f(0.1f, 0.2f, 0.3f, 0.5f);
     glLineWidth(1.0f);
     glBegin(GL_LINES);
@@ -587,37 +632,31 @@ void drawMiniMap()
     glVertex2f(mmX + mmW/2, mmY);
     glEnd();
 
-    // scaling calculation
     float scaleX = mmW / (MAP_WIDTH * 2.0f + 0.5f); 
     float scaleY = mmH / (MAP_HEIGHT * 2.0f + 0.5f);
     float scale = std::min(scaleX, scaleY);
 
-    // minimap links
     glLineWidth(1.0f);
     glColor4f(0.3f, 0.4f, 0.5f, 0.6f);
     glBegin(GL_LINES);
     for (size_t i = 0; i < nodes.size(); ++i) {
         for (int neighbor : nodes[i].links) {
             if (neighbor < (int)i) continue;
-            
             float x1 = mmX + nodes[i].x * scale;
             float y1 = mmY + nodes[i].y * scale;
             float x2 = mmX + nodes[neighbor].x * scale;
             float y2 = mmY + nodes[neighbor].y * scale;
-            
             glVertex2f(x1, y1);
             glVertex2f(x2, y2);
         }
     }
     glEnd();
 
-    // nodes
     glPointSize(4.0f);
     glBegin(GL_POINTS);
     for (int i = 0; i < nodes.size(); ++i)
     {
         const auto& n = nodes[i];
-        
         bool isTarget = false;
         if (player.highlightedNeighbor >= 0) {
              int targetId = nodes[player.currentNode].links[player.highlightedNeighbor];
@@ -637,14 +676,20 @@ void drawMiniMap()
         glVertex2f(nx, ny);
     }
     glEnd();
+    
+    if (virus.active) {
+        glPointSize(8.0f); 
+        glColor3f(1.0f, 0.0f, 0.0f);
+        glBegin(GL_POINTS);
+        glVertex2f(mmX + virus.x * scale, mmY + virus.y * scale);
+        glEnd();
+    }
 
-    // target ring / selection
     if (player.highlightedNeighbor >= 0) {
          int targetId = nodes[player.currentNode].links[player.highlightedNeighbor];
          Node& t = nodes[targetId];
          float tx = mmX + t.x * scale;
          float ty = mmY + t.y * scale;
-         
          glColor3f(1.0f, 1.0f, 0.0f);
          drawRing(tx, ty, 0.02f, 0.015f, 8);
     }
@@ -923,7 +968,7 @@ void displayHUD()
 
     float yC = topY + 0.01f; 
 
-    drawKeyButton(-screenAspect + 0.15f, yC, 0.15f, 0.08f, "ESC");
+    drawKeyButton(-screenAspect + 0.15f, yC, 0.15f, 0.08f, "ESC", false);
     glColor3f(0.7f, 0.7f, 0.7f);
     drawString("MENU", -screenAspect + 0.25f, yC - 0.01f, FONT_SCALE_MEDIUM);
 
@@ -931,18 +976,31 @@ void displayHUD()
     float keySz = 0.07f;
     float gap = 0.01f;
     
-    drawKeyButton(moveX, yC + keySz/2 + gap, keySz, keySz, "W");
-    drawKeyButton(moveX - keySz - gap, yC - keySz/2, keySz, keySz, "A");
-    drawKeyButton(moveX, yC - keySz/2, keySz, keySz, "S");
-    drawKeyButton(moveX + keySz + gap, yC - keySz/2, keySz, keySz, "D");
+    drawKeyButton(moveX, yC + keySz/2 + gap, keySz, keySz, "W", false);
+    drawKeyButton(moveX - keySz - gap, yC - keySz/2, keySz, keySz, "A", false);
+    drawKeyButton(moveX, yC - keySz/2, keySz, keySz, "S", false);
+    drawKeyButton(moveX + keySz + gap, yC - keySz/2, keySz, keySz, "D", false);
     
     glColor3f(0.7f, 0.7f, 0.7f);
     drawString("SELECT", moveX - 0.05f, yC - 0.1f, FONT_SCALE_MEDIUM);
 
     float actionX = 0.2f;
-    drawKeyButton(actionX, yC, 0.4f, 0.08f, "SPACE BAR");
+    drawKeyButton(actionX, yC, 0.4f, 0.08f, "SPACE BAR", false);
     glColor3f(0.7f, 0.7f, 0.7f);
     drawString("ENGAGE", actionX - 0.06f, yC - 0.1f, FONT_SCALE_MEDIUM);
+
+    float timerX = 0.0f; 
+    float timerY = yC - 0.15f; 
+
+    if (virus.active)
+    {
+        float pulse = sinf(glutGet(GLUT_ELAPSED_TIME) * 0.02f);
+        if (pulse > 0) glColor3f(1.0f, 0.0f, 0.0f);
+        else glColor3f(0.5f, 0.0f, 0.0f);
+
+        std::string warning = "VIRUS ACTIVE! RUN!";
+        drawString(warning.c_str(), timerX - 0.2f, timerY, FONT_SCALE_LARGE);
+    }
 
     float statusX = screenAspect - 0.4f;
     
@@ -969,11 +1027,11 @@ void displayHUD()
             glColor4f(1.0f, 0.9f, 0.2f, alpha);
 
         float msg_x = - (gameMessage.length() * FONT_SCALE_XLARGE * 3.7f) / 2.0f;
-        drawString(gameMessage.c_str(), msg_x, 0.0f, FONT_SCALE_XLARGE);
+        drawString(gameMessage.c_str(), msg_x - 0.2f, -0.7f, FONT_SCALE_XLARGE);
     }
 }
 
-// menu
+// MENUUUU
 void drawMenu()
 {
     glColor4f(0.0f, 0.0f, 0.0f, 0.8f);
@@ -1015,7 +1073,7 @@ void drawMenu()
     drawString("Controls: W/S/Arrows to navigate, A/D/Arrows to change, SPACE/Enter to select", cx - 0.3f, cy - (menuItems.size() + 2) * menuSpacing, FONT_SCALE_MEDIUM);
 }
 
-// codex
+// almanac / legend / codex
 void drawAlmanac()
 {
     glColor4f(0.0f, 0.0f, 0.0f, 0.8f);
@@ -1115,6 +1173,7 @@ void drawGame()
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     glLoadIdentity();
 
+    // cam transform
     glPushMatrix();
     glTranslatef(-cameraX, -cameraY, 0);
 
@@ -1127,9 +1186,14 @@ void drawGame()
     }
 
     drawMap();
+    
+    if (virus.active) {
+        drawVirus(virus.x, virus.y);
+    }
+    
     drawShockwaves();
 
-    // off screen indicator
+    // offscreen indicators
     if (!nodes.empty() && player.currentNode >= 0 && !inSequence && !player.moving && !displayingPassword)
     {
         clampHighlightedNeighbor();
@@ -1150,17 +1214,26 @@ void drawGame()
             drawOffScreenIndicator(target.x, target.y, icon, target.type);
         }
     }
+    
+    if (virus.active) {
+        // check if off screen, draw red warning
+        drawOffScreenIndicator(virus.x, virus.y, ICON_NONE, NODE_HAZARD);
+    }
 
     drawPlayerTrail();
     drawParticles();
     drawAvatar(player.x, player.y);
     
-    glPopMatrix(); 
+    // floating texts
+    drawFloatingTexts();
+    
+    glPopMatrix(); // end cam transform
 
+    // fixed hud
     displayHUD();
     drawMiniMap();
 
-    // warp on top of everything
+    // warping visual effect (teleportation between levels)
     drawWarpEffect(); 
 
     if (inSequence)
@@ -1168,22 +1241,29 @@ void drawGame()
     else if (displayingPassword)
         drawPasswordDisplay();
 
-    // vignette
+    // vignette effect
     glMatrixMode(GL_PROJECTION);
     glPushMatrix();
     glLoadIdentity();
     glMatrixMode(GL_MODELVIEW);
     glLoadIdentity();
 
+    float ratio = (float)windowW / (float)windowH;
+
     glBegin(GL_TRIANGLE_FAN);
-    glColor4f(0.0f, 0.0f, 0.0f, 0.0f);
+    glColor4f(0.0f, 0.0f, 0.0f, 0.0f); 
     glVertex2f(0.0f, 0.0f);
-    glColor4f(0.0f, 0.0f, 0.0f, 0.7f);
-    glVertex2f(-1.0f, -1.0f);
-    glVertex2f(1.0f, -1.0f);
-    glVertex2f(1.0f, 1.0f);
-    glVertex2f(-1.0f, 1.0f);
-    glVertex2f(-1.0f, -1.0f);
+
+    glColor4f(0.0f, 0.0f, 0.0f, 0.85f); 
+    int segments = 42;
+    float radius = 1.2f; 
+    for (int i = 0; i <= segments; i++)
+    {
+        float theta = (float)i / segments * 2.0f * 3.14159f;
+        float x = cosf(theta) * radius * (ratio > 1 ? ratio : 1.0f); 
+        float y = sinf(theta) * radius * (ratio < 1 ? 1.0f/ratio : 1.0f);
+        glVertex2f(x, y);
+    }
     glEnd();
 
     glMatrixMode(GL_PROJECTION);
