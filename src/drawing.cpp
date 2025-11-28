@@ -7,6 +7,7 @@
 #include <string>
 #include <GL/freeglut.h>
 
+
 void drawString(const char* s, float x, float y, float scale)
 {
     glPushMatrix();
@@ -612,10 +613,10 @@ void drawMiniMap()
     glVertex2f(mmX - mmW/2 - 0.01f, mmY + mmH/2 + 0.01f);
     glEnd();
 
-    glColor4f(0.0f, 0.05f, 0.1f, MINIMAP_OPACITY);
+    glColor4f(0.0f, 0.05f, 0.1f, MINIMAP_OPACITY * 0.65f);
     drawQuad(mmX - mmW/2, mmY - mmH/2, mmX + mmW/2, mmY + mmH/2);
-    
-    glColor4f(0.1f, 0.2f, 0.3f, 0.5f);
+   
+    glColor4f(0.1f, 0.2f, 0.3f, 0.45f);
     glLineWidth(1.0f);
     glBegin(GL_LINES);
     glVertex2f(mmX, mmY - mmH/2);
@@ -629,7 +630,7 @@ void drawMiniMap()
     float scale = std::min(scaleX, scaleY);
 
     glLineWidth(1.0f);
-    glColor4f(0.3f, 0.4f, 0.5f, 0.6f);
+    glColor4f(0.3f, 0.4f, 0.5f, 0.55f);
     glBegin(GL_LINES);
     for (size_t i = 0; i < nodes.size(); ++i) {
         for (int neighbor : nodes[i].links) {
@@ -1036,22 +1037,25 @@ void displayHUD()
 {
     float hudH = 0.15f;
     float topY = 1.0f - hudH/2;
-    
-    glColor4f(0.05f, 0.05f, 0.07f, 0.9f); 
+    glColor4f(0.0f, 0.0f, 0.0f, 0.45f);
+    drawQuad(-screenAspect, 1.0f - hudH - 0.02f, screenAspect, 1.0f - hudH);
+
+    glColor4f(0.04f, 0.04f, 0.06f, 0.95f);
     drawQuad(-screenAspect, 1.0f - hudH, screenAspect, 1.0f);
-    
-    glColor4f(0.2f, 0.5f, 0.8f, 0.8f);
+
+    // top divider line
+    glColor4f(0.18f, 0.45f, 0.78f, 0.9f);
     glLineWidth(2.0f);
     glBegin(GL_LINES);
     glVertex2f(-screenAspect, 1.0f - hudH);
     glVertex2f(screenAspect, 1.0f - hudH);
     glEnd();
 
-    float yC = topY + 0.01f; 
+    float yC = topY + 0.01f;
 
-    drawKeyButton(-screenAspect + 0.15f, yC, 0.15f, 0.08f, "ESC", false);
-    glColor3f(0.7f, 0.7f, 0.7f);
-    drawString("MENU", -screenAspect + 0.25f, yC - 0.01f, FONT_SCALE_MEDIUM);
+    drawKeyButton(-screenAspect + 0.15f, yC, 0.14f, 0.075f, "ESC", false);
+    glColor3f(0.78f, 0.78f, 0.78f);
+    drawString("MENU", -screenAspect + 0.25f, yC - 0.012f, FONT_SCALE_MEDIUM);
 
     float moveX = -0.6f; 
     float keySz = 0.07f;
@@ -1066,34 +1070,35 @@ void displayHUD()
     drawString("SELECT", moveX - 0.05f, yC - 0.1f, FONT_SCALE_MEDIUM);
 
     float actionX = 0.2f;
-    drawKeyButton(actionX, yC, 0.4f, 0.08f, "SPACE BAR", false);
-    glColor3f(0.7f, 0.7f, 0.7f);
-    drawString("ENGAGE", actionX - 0.06f, yC - 0.1f, FONT_SCALE_MEDIUM);
+    drawKeyButton(actionX, yC, 0.36f, 0.075f, "SPACE", false);
+    glColor3f(0.78f, 0.78f, 0.78f);
+    drawString("ENGAGE", actionX - 0.06f, yC - 0.095f, FONT_SCALE_MEDIUM);
 
-    float timerX = 0.0f; 
-    float timerY = yC - 0.15f; 
+    float timerX = 0.0f;
+    float timerY = yC - 0.15f;
 
     if (virus.active)
     {
         float pulse = sinf(glutGet(GLUT_ELAPSED_TIME) * 0.02f);
         if (pulse > 0) glColor3f(1.0f, 0.0f, 0.0f);
-        else glColor3f(0.5f, 0.0f, 0.0f);
+        else glColor3f(0.8f, 0.0f, 0.0f);
 
         std::string warning = "VIRUS ACTIVE! RUN!";
         drawString(warning.c_str(), timerX - 0.2f, timerY, FONT_SCALE_LARGE);
     }
 
-    float statusX = screenAspect - 0.4f;
-    
+    float statusX = screenAspect - 0.36f;
     glColor3f(1.0f, 1.0f, 1.0f);
     std::string lvl = "LEVEL: " + std::to_string(currentLevel);
-    drawString(lvl.c_str(), statusX, yC + 0.02f, FONT_SCALE_LARGE);
-    
-    drawString("ENERGY:", statusX, yC - 0.03f, FONT_SCALE_LARGE);
-    float ex = statusX + 0.2f;
-    float ey = yC - 0.02f;
+    drawString(lvl.c_str(), statusX, yC + 0.03f, FONT_SCALE_XLARGE);
+
+    drawString("ENERGY:", statusX, yC - 0.01f, FONT_SCALE_LARGE);
+    float ex = statusX + 0.22f;
+    float ey = yC - 0.0f;
+    float energyRadius = 0.02f;
+    float energyGap = 0.06f;
     for(int i=0; i<playerLives; ++i) {
-        drawEnergyIcon(ex + i*0.05f, ey, 0.015f, 1.0f);
+        drawEnergyIcon(ex + i*energyGap, ey, energyRadius, 1.0f);
     }
 
     if (gameMessageTimer > 0.0f)
@@ -1152,6 +1157,11 @@ void drawMenu()
             itemText = std::string("Music Volume: < ") + std::to_string(musicVolume) + " >";
         else if (itemText == "SFX")
             itemText = std::string("SFX: < ") + (sfxEnabled ? "ON" : "OFF") + " >";
+        else if (itemText == "Resolution")
+        {
+            std::pair<int,int> r = supportedResolutions[currentResolutionIndex];
+            itemText = std::string("Resolution: ") + std::to_string(r.first) + "x" + std::to_string(r.second) + (isFullscreen ? " (Fullscreen)" : " (Windowed)");
+        }
 
         drawString(itemText.c_str(), cx, y, FONT_SCALE_LARGE);
     }
@@ -1437,4 +1447,171 @@ void drawDVDEffect()
 
     glColor3f(cr, cg, cb);
     drawString("ThisPatched", x - 0.03f, y - 0.015f, FONT_SCALE_LARGE);
+}
+
+void drawTutorial()
+{
+    glColor4f(0.0f, 0.0f, 0.0f, 1.0f);
+    drawQuad(-screenAspect, -1.0f, screenAspect, 1.0f);
+
+    float cx = 0.0f, cy = 0.0f;
+    float baseContentUnit = 0.8f;
+    float h = 2.0f * baseContentUnit;
+    float w = h * screenAspect;
+    w = std::min(w, 2.5f);
+    h = std::min(h, 1.8f);
+
+    float f_large = FONT_SCALE_XLARGE * uiScale;
+    float f_med = FONT_SCALE_LARGE * uiScale;
+    float f_small = FONT_SCALE_SMALL * uiScale;
+
+    int pages = 2;
+    if (tutorialPage < 0) tutorialPage = 0;
+    if (tutorialPage >= pages) tutorialPage = pages - 1;
+
+    float currentY = cy + h * 0.5f; 
+
+    currentY -= h * 0.08f; 
+    float headerBlockY = currentY;
+    glColor3f(0.95f, 0.95f, 0.95f);
+    drawString("CONTROLS", cx - w * 0.4f, headerBlockY, f_large); 
+    char pageBuf[32];
+    sprintf(pageBuf, "%d / %d", tutorialPage + 1, pages);
+    drawString(pageBuf, cx + w * 0.4f - strlen(pageBuf) * 104.76f * f_med, headerBlockY, f_med); 
+
+    currentY -= h * 0.10f; 
+
+    if (tutorialPage == 0)
+    {
+        currentY -= h * 0.05f; 
+        const char* controlsTitle = "";
+        float controlsTitleWidth = strlen(controlsTitle) * 104.76f * f_med;
+        drawString(controlsTitle, cx - controlsTitleWidth * 0.5f, currentY, f_med);
+
+        currentY -= h * 0.10f; 
+
+        float ksz = w * 0.09f; 
+        float kgap = ksz * 0.12f;
+
+        float wasdBlockCenterX = cx - w * 0.25f; 
+        float wasdBlockY = currentY;
+
+        drawKeyButton(wasdBlockCenterX, wasdBlockY + ksz + kgap, ksz, ksz, "W", false);
+        drawKeyButton(wasdBlockCenterX - ksz - kgap, wasdBlockY, ksz, ksz, "A", false);
+        drawKeyButton(wasdBlockCenterX, wasdBlockY, ksz, ksz, "S", false);
+        drawKeyButton(wasdBlockCenterX + ksz + kgap, wasdBlockY, ksz, ksz, "D", false);
+
+        const char* moveSelectText = "Move / Select neighbours";
+        float moveSelectTextWidth = strlen(moveSelectText) * 104.76f * f_small;
+        drawString(moveSelectText, wasdBlockCenterX - moveSelectTextWidth * 0.5f, wasdBlockY - ksz * 0.75f, f_small); 
+
+        currentY -= h * 0.25f; 
+
+        float actionBlockCenterX = cx + w * 0.25f; 
+        float actionBlockY = currentY;
+
+        drawKeyButton(actionBlockCenterX, actionBlockY, w * 0.30f, h * 0.06f, "SPACE", false);
+        const char* engageText = "Engage / Confirm / Hold";
+        float engageTextWidth = strlen(engageText) * 104.76f * f_small;
+        drawString(engageText, actionBlockCenterX - engageTextWidth * 0.5f, actionBlockY - h * 0.09f, f_small); 
+
+        actionBlockY -= h * 0.12f; 
+        drawKeyButton(actionBlockCenterX, actionBlockY, w * 0.06f, h * 0.04f, "ESC", false); 
+        const char* pauseText = "Pause";
+        float pauseTextWidth = strlen(pauseText) * 104.76f * f_small;
+        drawString(pauseText, actionBlockCenterX - pauseTextWidth * 0.5f, actionBlockY - h * 0.05f, f_small);
+
+        currentY -= h * 0.20f; 
+    }
+    else if (tutorialPage == 1) 
+    {
+        currentY -= h * 0.05f; 
+        const char* sequenceTitle = "Sequence Mechanics";
+        float sequenceTitleWidth = strlen(sequenceTitle) * 104.76f * f_med;
+        drawString(sequenceTitle, cx - sequenceTitleWidth * 0.5f, currentY, f_med);
+
+        currentY -= h * 0.10f;
+
+        float sampleW = w * 0.7f; 
+        float sampleH = h * 0.18f; 
+
+        currentY -= h * 0.05f; 
+        float sampleX = cx; 
+        float sampleTextY = currentY + sampleH * 0.3f;
+        float sampleArrowY = currentY - sampleH * 0.05f;
+        float sampleDescY = currentY - sampleH * 0.3f;
+
+        glColor4f(0.06f, 0.06f, 0.07f, 0.9f);
+        drawQuad(sampleX - sampleW/2, currentY - sampleH/2, sampleX + sampleW/2, currentY + sampleH/2);
+
+        const char* singleArrowText = "Single Arrow";
+        float singleArrowTextWidth = strlen(singleArrowText) * 104.76f * f_small;
+        drawString(singleArrowText, sampleX - singleArrowTextWidth * 0.5f, sampleTextY, f_small);
+        drawArrowShape(sampleX, sampleArrowY, ARROW_UP, 0, ARROW_DISPLAY_SIZE * 0.95f * uiScale, 1.0f, false);
+        const char* singleArrowDesc = "Press when timing bar reaches green.";
+        float singleArrowDescWidth = strlen(singleArrowDesc) * 104.76f * f_small;
+        drawString(singleArrowDesc, sampleX - singleArrowDescWidth * 0.5f, sampleDescY, f_small);
+
+        currentY -= sampleH + h * 0.05f; 
+
+        sampleTextY = currentY + sampleH * 0.3f;
+        sampleDescY = currentY - sampleH * 0.3f;
+
+        glColor4f(0.06f, 0.06f, 0.07f, 0.9f);
+        drawQuad(sampleX - sampleW/2, currentY - sampleH/2, sampleX + sampleW/2, currentY + sampleH/2);
+
+        const char* holdNoteText = "Hold Note";
+        float holdNoteTextWidth = strlen(holdNoteText) * 104.76f * f_small;
+        drawString(holdNoteText, sampleX - holdNoteTextWidth * 0.5f, sampleTextY, f_small);
+
+        float barW = sampleW * 0.86f, barH = sampleH * 0.12f;
+        float barX = sampleX - barW/2;
+        float barY = currentY - sampleH*0.05f;
+        glColor3f(0.18f, 0.18f, 0.18f);
+        drawQuad(barX, barY - barH/2, barX + barW, barY + barH/2);
+        glColor3f(0.1f, 0.7f, 1.0f);
+        drawQuad(barX, barY - barH/2, barX + barW * 0.55f, barY + barH/2);
+        const char* holdNoteDesc = "Release 50% to get partial credit on reward nodes.";
+        float holdNoteDescWidth = strlen(holdNoteDesc) * 104.76f * f_small;
+        drawString(holdNoteDesc, sampleX - holdNoteDescWidth * 0.5f, sampleDescY, f_small);
+
+        currentY -= sampleH + h * 0.05f; 
+
+        sampleTextY = currentY + sampleH * 0.3f;
+        sampleDescY = currentY - sampleH * 0.3f;
+
+        glColor4f(0.06f, 0.06f, 0.07f, 0.9f);
+        drawQuad(sampleX - sampleW/2, currentY - sampleH/2, sampleX + sampleW/2, currentY + sampleH/2);
+
+        const char* chordText = "Chord (simultaneous)";
+        float chordTextWidth = strlen(chordText) * 104.76f * f_small;
+        drawString(chordText, sampleX - chordTextWidth * 0.5f, sampleTextY, f_small);
+
+        float chordArrowY = currentY + sampleH*0.22f; 
+        float leftX = sampleX - sampleW*0.12f, rightX = sampleX + sampleW*0.12f, ringR = sampleW * 0.08f, ringY = currentY + sampleH*0.08f;
+        glColor4f(0.12f, 0.7f, 1.0f, 0.85f);
+        drawRing(leftX, ringY, ringR, ringR - ringR*0.22f, 24);
+        drawRing(rightX, ringY, ringR, ringR - ringR*0.22f, 24);
+        drawQuad(leftX + ringR*0.16f, ringY - ringR*0.06f, rightX - ringR*0.16f, ringY + ringR*0.06f);
+        drawArrowShape(leftX, chordArrowY, ARROW_LEFT, 0, ARROW_DISPLAY_SIZE * 0.85f * uiScale, 1.0f, false);
+        drawArrowShape(rightX, chordArrowY, ARROW_RIGHT, 0, ARROW_DISPLAY_SIZE * 0.85f * uiScale, 1.0f, false);
+        const char* chordDesc = "Press both directions together.";
+        float chordDescWidth = strlen(chordDesc) * 104.76f * f_small;
+        drawString(chordDesc, sampleX - chordDescWidth * 0.5f, sampleDescY, f_small);
+    }
+
+    currentY -= h * 0.08f; 
+    float fY = currentY; 
+    float fCX = cx;
+
+    float animSpeed = 0.005f;
+    float pulse = 0.1f + 0.05f * sinf(glutGet(GLUT_ELAPSED_TIME) * animSpeed);
+    float arrowAnimScale = 1.0f + pulse;
+    drawArrowShape(fCX - w * 0.1f, fY, ARROW_LEFT, 0, 0.06f * uiScale, arrowAnimScale, false); 
+    drawArrowShape(fCX + w * 0.1f, fY, ARROW_RIGHT, 0, 0.06f * uiScale, arrowAnimScale, false); 
+
+    currentY -= h * 0.06f; 
+    const char* footerNavText = "Left / Right: Prev / Next   [SPACE] or [ESC]: Back";
+    float footerNavTextWidth = strlen(footerNavText) * 104.76f * f_small;
+    drawString(footerNavText, cx - footerNavTextWidth * 0.5f, currentY, f_small);
 }

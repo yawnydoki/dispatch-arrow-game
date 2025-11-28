@@ -1,5 +1,6 @@
 #include "game.h"
 #include <windows.h>
+#include <algorithm>
 
 void display()
 {
@@ -12,6 +13,10 @@ void display()
     else if (currentGameState == STATE_ALMANAC)
     {
         drawAlmanac();
+    }
+    else if (currentGameState == STATE_TUTORIAL)
+    {
+        drawTutorial();
     }
     glutSwapBuffers();
 }
@@ -27,6 +32,9 @@ void reshape(int w, int h)
     float asp = (float)w / (float)h;
 
     screenAspect = asp;
+
+    // scale ui elements relative to a 1920x1080 base
+    uiScale = std::min((float)w / 1920.0f, (float)h / 1080.0f);
 
     if (asp >= 1.0f)
         glOrtho(-asp, asp, -1, 1, -1, 1);
@@ -53,7 +61,9 @@ int main(int argc, char** argv)
     glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGBA | GLUT_MULTISAMPLE);
     glutInitWindowSize(windowW, windowH);
     glutCreateWindow("THISPATCHED");
-    glutFullScreen();
+
+    // apply user selected/fullscreen setting (default is fullscreen)
+    applyResolutionSetting();
 
     try
     {

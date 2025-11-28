@@ -34,9 +34,10 @@ const float ARROW_DISPLAY_SIZE = 0.07f;
 const float ARROW_UI_X_SPACING = 0.12f;
 const float ARROW_UI_POS_Y = 0.55f;
 
+const float FONT_SCALE_SMALL = 0.00014f;
 const float FONT_SCALE_MEDIUM = 0.00016f;
 const float FONT_SCALE_LARGE = 0.00022f;
-const float FONT_SCALE_XLARGE = 0.0003f;
+const float FONT_SCALE_XLARGE = 0.00030f;
 
 // sfx
 extern const char* BGM_FILE;

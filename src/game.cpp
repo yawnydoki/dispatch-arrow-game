@@ -59,6 +59,35 @@ bool gameInProgress = false;
 
 float screenAspect = 1.6f;
 
+int tutorialPage = 0;
+float uiScale = 1.0f;
+
+// resolution / fullscreen settings
+bool isFullscreen = true;
+std::vector<std::pair<int,int>> supportedResolutions = { {1920,1080}, {1600,900}, {1366,768}, {1280,720} };
+int currentResolutionIndex = 0;
+
+void applyResolutionSetting()
+{
+    if (currentResolutionIndex < 0 || currentResolutionIndex >= (int)supportedResolutions.size())
+        currentResolutionIndex = 0;
+
+    int w = supportedResolutions[currentResolutionIndex].first;
+    int h = supportedResolutions[currentResolutionIndex].second;
+    windowW = w;
+    windowH = h;
+
+    if (isFullscreen)
+    {
+        glutFullScreen();
+    }
+    else
+    {
+        glutReshapeWindow(windowW, windowH);
+        glutPositionWindow(100, 100);
+    }
+}
+
 bool displayingPassword = false;
 bool isPasswordInput = false;
 bool justRevealedPassword = false;
@@ -101,11 +130,11 @@ void setGameMessage(const std::string& msg, float duration)
 std::vector<std::string> getMenuItems()
 {
     if (isGameOver)
-        return { "New Game", "Codex", "Quit" };
+        return { "New Game", "How to Play", "Codex", "Quit" };
     else if (gameInProgress)
-        return { "Resume Game", "Restart Game", "Codex", "Music Volume", "SFX", "Quit" };
+        return { "Resume Game", "Restart Game", "Codex", "Resolution", "Music Volume", "SFX", "Quit" };
     else
-        return { "New Game", "Codex", "Music Volume", "SFX", "Quit" };
+        return { "New Game", "Tutorial", "Codex", "Resolution", "Music Volume", "SFX", "Quit" };
 }
 
 void spawnFloatingText(const std::string& text, float x, float y, float r, float g, float b, float scale)

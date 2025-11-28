@@ -3,6 +3,7 @@
 
 #include <GL/freeglut.h>
 #include <vector>
+#include <utility>
 #include <string>
 #include <random>
 #include <map>
@@ -67,6 +68,13 @@ extern int g_mouseX, g_mouseY;
 
 extern std::map<unsigned char, bool> keysState;
 extern std::map<int, bool> specialKeysState;
+extern int tutorialPage;
+extern float uiScale;
+extern bool isFullscreen;
+extern std::vector<std::pair<int,int>> supportedResolutions;
+extern int currentResolutionIndex;
+
+void applyResolutionSetting();
 
 // core funcs
 void passiveMouse(int x, int y);
@@ -103,6 +111,7 @@ GLuint makeProceduralUITexture(int w = 256, int h = 64);
 void drawGame();
 void drawMenu();
 void drawAlmanac();
+void drawTutorial();
 void drawShockwaves();
 void drawPlayerTrail();
 void drawWarpEffect(); 

@@ -23,6 +23,14 @@ void specialKeys(int key, int x, int y)
         else if (key == GLUT_KEY_LEFT)
         {
             const std::string &item = menuItems[menuSelectedItem];
+            if (item == "Resolution")
+            {
+                currentResolutionIndex = (currentResolutionIndex - 1 + (int)supportedResolutions.size()) % (int)supportedResolutions.size();
+                applyResolutionSetting();
+                playSFX(SFX_MENU_SELECT);
+                glutPostRedisplay();
+                return;
+            }
             if (item == "Music Volume")
             {
                 musicVolume = std::max(0, musicVolume - 10);
@@ -38,6 +46,14 @@ void specialKeys(int key, int x, int y)
         else if (key == GLUT_KEY_RIGHT)
         {
             const std::string &item = menuItems[menuSelectedItem];
+            if (item == "Resolution")
+            {
+                currentResolutionIndex = (currentResolutionIndex + 1) % (int)supportedResolutions.size();
+                applyResolutionSetting();
+                playSFX(SFX_MENU_SELECT);
+                glutPostRedisplay();
+                return;
+            }
             if (item == "Music Volume")
             {
                 musicVolume = std::min(100, musicVolume + 10);
@@ -99,6 +115,21 @@ void specialKeys(int key, int x, int y)
             }
         }
     }
+    else if (currentGameState == STATE_TUTORIAL)
+    {
+        if (key == GLUT_KEY_LEFT)
+        {
+                tutorialPage = std::max(0, tutorialPage - 1); 
+                playSFX(SFX_MENU_SELECT);
+            }
+            else if (key == GLUT_KEY_RIGHT)
+            {
+                tutorialPage = std::min(1, tutorialPage + 1); 
+            playSFX(SFX_MENU_SELECT);
+        }
+        glutPostRedisplay();
+        return;
+    }
     glutPostRedisplay();
 }
 
@@ -115,7 +146,7 @@ void keyboard(unsigned char k, int x, int y)
         {
             return;
         }
-        else if (currentGameState == STATE_ALMANAC)
+        else if (currentGameState == STATE_ALMANAC || currentGameState == STATE_TUTORIAL)
         {
             currentGameState = STATE_MENU;
         }
@@ -162,6 +193,24 @@ void keyboard(unsigned char k, int x, int y)
         return;
     }
 
+    if (currentGameState == STATE_TUTORIAL)
+    {
+        if (k == ' ' || k == 13)
+        {
+            currentGameState = STATE_MENU;
+        }
+        else if (k == 'a' || k == 'A')
+        {
+                tutorialPage = std::max(0, tutorialPage - 1); 
+        }
+        else if (k == 'd' || k == 'D')
+        {
+                tutorialPage = std::min(1, tutorialPage + 1);
+        }
+        glutPostRedisplay();
+        return;
+    }
+
     if (currentGameState == STATE_MENU)
     {
         std::vector<std::string> menuItems = getMenuItems();
@@ -183,6 +232,14 @@ void keyboard(unsigned char k, int x, int y)
         else if (k == 'a' || k == 'A')
         {
             const std::string &item = menuItems[menuSelectedItem];
+            if (item == "Resolution")
+            {
+                currentResolutionIndex = (currentResolutionIndex - 1 + (int)supportedResolutions.size()) % (int)supportedResolutions.size();
+                applyResolutionSetting();
+                playSFX(SFX_MENU_SELECT);
+                glutPostRedisplay();
+                return;
+            }
             if (item == "Music Volume")
             {
                 musicVolume = std::max(0, musicVolume - 10);
@@ -198,6 +255,14 @@ void keyboard(unsigned char k, int x, int y)
         else if (k == 'd' || k == 'D')
         {
             const std::string &item = menuItems[menuSelectedItem];
+            if (item == "Resolution")
+            {
+                currentResolutionIndex = (currentResolutionIndex + 1) % (int)supportedResolutions.size();
+                applyResolutionSetting();
+                playSFX(SFX_MENU_SELECT);
+                glutPostRedisplay();
+                return;
+            }
             if (item == "Music Volume")
             {
                 musicVolume = std::min(100, musicVolume + 10);
@@ -228,6 +293,17 @@ void keyboard(unsigned char k, int x, int y)
             else if (item == "Codex")
             {
                 currentGameState = STATE_ALMANAC;
+            }
+            else if (item == "Tutorial")
+            {
+                currentGameState = STATE_TUTORIAL;
+                tutorialPage = 0;
+            }
+            else if (item == "Resolution")
+            {
+                // toggle fullscreen/windowed when selecting the item
+                isFullscreen = !isFullscreen;
+                applyResolutionSetting();
             }
             else if (item == "Quit")
             {

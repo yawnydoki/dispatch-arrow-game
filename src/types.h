@@ -7,6 +7,7 @@
 enum GameState
 {
     STATE_MENU,
+    STATE_TUTORIAL,
     STATE_PLAYING,
     STATE_ALMANAC
 };
