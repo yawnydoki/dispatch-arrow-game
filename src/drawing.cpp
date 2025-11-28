@@ -1238,7 +1238,37 @@ void drawAlmanac()
     glColor3f(1.0f, 1.0f, 1.0f);
     drawString("Warp Node (Shortcut?)", legendCol2TextX, legendY + textYOff, FONT_SCALE_LARGE);
     legendY -= legendSpacing;
+    
+    {
+        float hx = legendCol2X + legendIconSize * 0.5f;
+        float hy = legendY - legendSpacing * 0.15f;
+        float barW = 0.06f;
+        float barH = 0.01f;
+        glColor3f(0.1f, 0.6f, 1.0f);
+        drawQuad(hx - barW/2, hy - barH/2, hx + barW/2, hy + barH/2);
+        glColor3f(1.0f, 1.0f, 1.0f);
+        drawString("Hold Note (release 50%)", legendCol2TextX, hy - 0.012f, FONT_SCALE_LARGE);
+        legendY -= legendSpacing;
+    }
 
+    {
+        float cx = legendCol2X + legendIconSize * 0.5f;
+        float cy2 = legendY - legendSpacing * 0.15f;
+        float ringR = 0.01f;
+        float span = 0.035f;
+        float leftX = cx - span;
+        float rightX = cx + span;
+        glColor3f(0.12f, 0.7f, 1.0f);
+        drawRing(leftX, cy2, ringR + 0.003f, ringR, 12);
+        drawRing(rightX, cy2, ringR + 0.003f, ringR, 12);
+        glColor4f(0.12f, 0.7f, 1.0f, 0.6f);
+        drawQuad(leftX + 0.005f, cy2 - 0.002f, rightX - 0.005f, cy2 + 0.002f);
+        glColor3f(1.0f, 1.0f, 1.0f);
+        drawString("Chord (simultaneous press)", legendCol2TextX, cy2 - 0.012f, FONT_SCALE_LARGE);
+        legendY -= legendSpacing;
+    }
+
+    // spacer before the fake-note warning
     legendY -= legendSpacing * 0.5f;
     glColor3f(1.0f, 0.2f, 0.2f);
     drawArrowShape(legendCol2X + 0.1f, legendY, ARROW_LEFT, 0, 0.05f, 1.0f, true);
