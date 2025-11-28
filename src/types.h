@@ -52,6 +52,10 @@ struct Arrow
     bool isHolding = false; 
     int holdStartTimeMs = 0;
 
+    // chord / simultaneous press notes (like left+right)
+    std::vector<ArrowDir> chordDirs; // size>1 means this is a chord
+    std::vector<bool> chordPressed;  // parallel flags for chords
+
     Arrow(ArrowDir d = ARROW_UP, int r = 0, float anim = 1.0f, bool fake = false)
         : dir(d), result(r), displayAnim(anim), isFake(fake) {}
 };

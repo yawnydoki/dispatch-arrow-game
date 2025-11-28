@@ -155,7 +155,17 @@ static void startRhythmSequence(int targetNodeIndex)
         a.displayAnim = 1.0f;
         a.isFake = false;
 
-        if (currentSequenceIsHazard && fakeRoll(rng) < 20)
+        if ((currentSequenceIsHazard || targetType == NODE_WARP) && (rng() % 100) < 25)
+        {
+            ArrowDir d1 = a.dir;
+            ArrowDir d2;
+            do { d2 = (ArrowDir)arrowDist(rng); } while (d2 == d1);
+            a.chordDirs.clear();
+            a.chordDirs.push_back(d1);
+            a.chordDirs.push_back(d2);
+            a.chordPressed = std::vector<bool>(a.chordDirs.size(), false);
+        }
+        else if (currentSequenceIsHazard && fakeRoll(rng) < 20)
         {
             a.isFake = true;
         }
@@ -171,8 +181,6 @@ static void startRhythmSequence(int targetNodeIndex)
 
 void attemptMoveToHighlightedNeighbor()
 {
-    if (player.moving || inSequence || displayingPassword || isPasswordInput)
-        return;
     if (player.highlightedNeighbor == -1)
     {
         playSFX(SFX_TIMING_FAIL);
@@ -228,6 +236,17 @@ void generateNextHazardSequence()
         a.result = 0;
         a.displayAnim = 1.0f;
         a.isFake = (fakeRoll(rng) < 20);
+        // chance for chord on hazard sequences
+        if ((rng() % 100) < 25)
+        {
+            ArrowDir d1 = a.dir;
+            ArrowDir d2;
+            do { d2 = (ArrowDir)arrowDist(rng); } while (d2 == d1);
+            a.chordDirs.clear();
+            a.chordDirs.push_back(d1);
+            a.chordDirs.push_back(d2);
+            a.chordPressed = std::vector<bool>(a.chordDirs.size(), false);
+        }
         sequence.push_back(a);
     }
 
@@ -432,12 +451,74 @@ void handleArrowPress(ArrowDir pressed)
 
     bool sequenceFailed = false;
 
-    if (sequence[seqIdx].isFake)
+    Arrow &cur = sequence[seqIdx];
+
+    if (cur.isFake)
     {
-        sequenceFailed = true; 
+        sequenceFailed = true;
         setGameMessage("Tripped wire!", 3.0f);
     }
-    else if (sequence[seqIdx].dir == pressed)
+    else if (!cur.chordDirs.empty() && cur.chordDirs.size() > 1)
+    {
+        // chord handling
+        int found = -1;
+        for (size_t ci = 0; ci < cur.chordDirs.size(); ++ci)
+        {
+            if (cur.chordDirs[ci] == pressed) { found = (int)ci; break; }
+        }
+
+        if (found == -1)
+        {
+            sequenceFailed = true;
+        }
+        else
+        {
+            cur.chordPressed[found] = true;
+            // check if all parts pressed
+            bool all = true;
+            for (bool p : cur.chordPressed) if (!p) { all = false; break; }
+
+            if (all)
+            {
+                int tier = 0;
+                if (dt <= currentPerfectMs) tier = 1;
+                else if (dt <= currentGoodMs) tier = 2;
+                else if (dt <= currentBadMs) tier = 3;
+                else tier = -1;
+
+                if (tier == 1 || tier == 2 || tier == 3)
+                {
+                    if (currentSequenceIsHazard && tier == 3)
+                    {
+                        sequenceFailed = true;
+                        setGameMessage("Hazard Failed!", 3.0f);
+                    }
+                    else
+                    {
+                        cur.result = tier;
+                        if (tier == 1) {
+                            playSFX(SFX_TIMING_PERFECT);
+                            spawnParticles(10, player.x, player.y, 0.5f, 0.1f, 1.0f, 0.2f);
+                            spawnFloatingText("PERFECT", player.x, player.y + 0.1f, 0.2f, 1.0f, 0.5f, 1.2f);
+                        }
+                        else if (tier == 2) {
+                            playSFX(SFX_TIMING_GOOD);
+                            spawnFloatingText("GOOD", player.x, player.y + 0.1f, 0.8f, 1.0f, 0.2f, 1.0f);
+                        }
+                        else if (tier == 3) {
+                            playSFX(SFX_TIMING_GOOD);
+                            spawnFloatingText("OKAY", player.x, player.y + 0.1f, 1.0f, 0.8f, 0.2f, 0.8f);
+                        }
+                    }
+                }
+                else sequenceFailed = true;
+            }
+            else
+            {
+            }
+        }
+    }
+    else if (cur.dir == pressed)
     {
         int tier = 0;
         if (dt <= currentPerfectMs) tier = 1;
@@ -454,7 +535,7 @@ void handleArrowPress(ArrowDir pressed)
             }
             else
             {
-                sequence[seqIdx].result = tier;
+                cur.result = tier;
                 
                 if (tier == 1) {
                     playSFX(SFX_TIMING_PERFECT);
@@ -481,18 +562,31 @@ void handleArrowPress(ArrowDir pressed)
         return;
     }
 
-    sequence[seqIdx].displayAnim = 1.2f;
-    seqIdx++;
-    stepWaitingForInput = false;
-
-    if (seqIdx < (int)sequence.size())
-    {
-        stepStartTimeMs = now + 100;
-        stepWaitingForInput = true;
-    }
+    bool advanced = false;
+    if (cur.chordDirs.empty() || cur.chordDirs.size() <= 1)
+        advanced = true;
     else
     {
-        finishSequenceSuccess();
+        bool all = true;
+        for (bool p : cur.chordPressed) if (!p) { all = false; break; }
+        advanced = all;
+    }
+
+    if (advanced)
+    {
+        sequence[seqIdx].displayAnim = 1.2f;
+        seqIdx++;
+        stepWaitingForInput = false;
+
+        if (seqIdx < (int)sequence.size())
+        {
+            stepStartTimeMs = now + 100;
+            stepWaitingForInput = true;
+        }
+        else
+        {
+            finishSequenceSuccess();
+        }
     }
 }
 

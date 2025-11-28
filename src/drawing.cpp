@@ -801,7 +801,65 @@ void drawSequenceUI()
             animScale *= pulse;
         }
 
-        drawArrowShape(px, arrowY, sequence[i].dir, sequence[i].result, ARROW_DISPLAY_SIZE, animScale, sequence[i].isFake);
+        if (!sequence[i].chordDirs.empty() && sequence[i].chordDirs.size() > 1)
+        {
+            float span = 0.06f;
+            float leftX = px - span * 0.5f;
+            float rightX = px + span * 0.5f;
+            float ringR = 0.035f;
+            float ringY = arrowY - 0.08f; 
+
+            // base soft halo
+            glColor4f(0.06f, 0.45f, 0.9f, 0.08f);
+            drawCircle(leftX, ringY, ringR * 1.1f, 24);
+            drawCircle(rightX, ringY, ringR * 1.1f, 24);
+
+            // pressed states
+            bool leftPressed = false, rightPressed = false;
+            if (sequence[i].chordPressed.size() == sequence[i].chordDirs.size())
+            {
+                leftPressed = sequence[i].chordPressed[0];
+                rightPressed = sequence[i].chordPressed[1];
+            }
+
+            // rotating rings
+            float now = glutGet(GLUT_ELAPSED_TIME) * 0.06f;
+            float rotA = fmod(now, 360.0f);
+            float rotB = fmod(-now * 1.3f, 360.0f);
+
+            // left ring
+            glPushMatrix();
+            glTranslatef(leftX, ringY, 0);
+            glRotatef(rotA, 0, 0, 1);
+            if (leftPressed) glColor4f(0.08f, 0.9f, 1.0f, 0.95f); else glColor4f(0.12f, 0.7f, 1.0f, 0.65f);
+            drawRing(0.0f, 0.0f, ringR, ringR - 0.008f, 28);
+            glPopMatrix();
+
+            // right ring 
+            glPushMatrix();
+            glTranslatef(rightX, ringY, 0);
+            glRotatef(rotB, 0, 0, 1);
+            if (rightPressed) glColor4f(0.08f, 0.9f, 1.0f, 0.95f); else glColor4f(0.12f, 0.7f, 1.0f, 0.65f);
+            drawRing(0.0f, 0.0f, ringR, ringR - 0.008f, 28);
+            glPopMatrix();
+
+            // subtle connector line 
+            glColor4f(0.12f, 0.7f, 1.0f, (leftPressed && rightPressed) ? 0.9f : 0.12f);
+            drawQuad(leftX + 0.01f, ringY - 0.004f, rightX - 0.01f, ringY + 0.004f);
+
+            if (leftPressed) glColor3f(0.06f, 0.85f, 1.0f); else glColor3f(0.55f, 0.55f, 0.55f);
+            drawCircle(leftX, ringY, 0.01f, 12);
+            if (rightPressed) glColor3f(0.06f, 0.85f, 1.0f); else glColor3f(0.55f, 0.55f, 0.55f);
+            drawCircle(rightX, ringY, 0.01f, 12);
+
+            // draw arrows above rings 
+            drawArrowShape(leftX, arrowY, sequence[i].chordDirs[0], sequence[i].result, ARROW_DISPLAY_SIZE * 0.9f, animScale, sequence[i].isFake);
+            drawArrowShape(rightX, arrowY, sequence[i].chordDirs[1], sequence[i].result, ARROW_DISPLAY_SIZE * 0.9f, animScale, sequence[i].isFake);
+        }
+        else
+        {
+            drawArrowShape(px, arrowY, sequence[i].dir, sequence[i].result, ARROW_DISPLAY_SIZE, animScale, sequence[i].isFake);
+        }
 
         // draw hold indicator if this arrow is a hold note
         if (sequence[i].isHold)
