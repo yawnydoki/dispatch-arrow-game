@@ -1,6 +1,7 @@
 #include "game.h"
 #include <cmath>
 #include <algorithm>
+#include <random>
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -1112,16 +1113,21 @@ void displayHUD()
 }
 
 // MENUUUU
+void drawDVDEffect();
 void drawMenu()
 {
-    glColor4f(0.0f, 0.0f, 0.0f, 0.8f);
+    glColor4f(0.0f, 0.0f, 0.0f, 1.0f);
     drawQuad(-screenAspect, -1.0f, screenAspect, 1.0f);
+
+    drawDVDEffect();
 
     float cx = -0.7f;
     float cy = 0.5f;
     float menuSpacing = 0.12f;
 
-    glColor3f(1.0f, 1.0f, 1.0f);
+    float t = glutGet(GLUT_ELAPSED_TIME) * 0.0012f;
+    float pulse = 0.5f + 0.5f * sinf(t);
+    glColor3f(0.4f + 0.6f * pulse, 0.6f, 0.2f + 0.4f * (1.0f - pulse));
     drawString("THISPATCHED", cx, cy, FONT_SCALE_XLARGE);
     cy -= menuSpacing * 1.5f;
 
@@ -1132,13 +1138,14 @@ void drawMenu()
     {
         float y = cy - i * menuSpacing;
 
-        if (i == menuSelectedItem)
+        if ((int)i == menuSelectedItem)
         {
-            glColor3f(0.1f, 1.0f, 0.2f);
+            glColor4f(0.1f, 0.6f, 0.2f, 0.18f);
+            glColor3f(1.0f, 1.0f, 1.0f);
             drawArrowShape(cx - 0.05f, y + 0.02f, ARROW_RIGHT, 0, 0.05f);
         }
         else
-            glColor3f(1.0f, 1.0f, 1.0f);
+            glColor3f(0.8f, 0.8f, 0.8f);
 
         std::string itemText = menuItems[i];
         if (itemText == "Music Volume")
@@ -1149,8 +1156,6 @@ void drawMenu()
         drawString(itemText.c_str(), cx, y, FONT_SCALE_LARGE);
     }
 
-    glColor3f(0.8f, 0.8f, 0.8f);
-    drawString("Controls: W/S/Arrows to navigate, A/D/Arrows to change, SPACE/Enter to select", cx - 0.3f, cy - (menuItems.size() + 2) * menuSpacing, FONT_SCALE_MEDIUM);
 }
 
 // almanac / legend / codex
@@ -1379,4 +1384,57 @@ void drawGame()
     glMatrixMode(GL_PROJECTION);
     glPopMatrix();
     glMatrixMode(GL_MODELVIEW);
+}
+
+void drawDVDEffect()
+{
+    static bool init = false;
+    static float x, y, vx, vy;
+    static float cr = 0.9f, cg = 0.2f, cb = 0.2f;
+    static int lastT = 0;
+
+    int now = glutGet(GLUT_ELAPSED_TIME);
+    if (!init)
+    {
+        x = 0.3f; y = 0.2f; vx = 0.65f; vy = 0.45f;
+        lastT = now;
+        init = true;
+    }
+
+    float dt = (now - lastT) / 1000.0f;
+    if (dt > 0.1f) dt = 0.1f; // clamp
+    lastT = now;
+
+    x += vx * dt;
+    y += vy * dt;
+
+    float boundX = screenAspect - 0.08f;
+    float boundY = 1.0f - 0.08f;
+    bool bounced = false;
+    if (x < -boundX) { x = -boundX; vx = -vx; bounced = true; }
+    if (x > boundX)  { x = boundX;  vx = -vx; bounced = true; }
+    if (y < -boundY) { y = -boundY; vy = -vy; bounced = true; }
+    if (y > boundY)  { y = boundY;  vy = -vy; bounced = true; }
+
+    if (bounced)
+    {
+        std::uniform_real_distribution<float> d(0.3f, 1.0f);
+        cr = d(rng); cg = d(rng); cb = d(rng);
+    }
+
+    // soft glow behind the logo
+    glColor4f(cr, cg, cb, 0.12f);
+    drawCircle(x, y, 0.14f, 32);
+
+    // logo box
+    glColor4f(cr, cg, cb, 0.95f);
+    float w = 0.14f, h = 0.07f;
+    drawQuad(x - w/2, y - h/2, x + w/2, y + h/2);
+
+    // inner dark rect for contrast
+    glColor3f(0.03f, 0.03f, 0.03f);
+    drawQuad(x - w/2 + 0.008f, y - h/2 + 0.006f, x + w/2 - 0.008f, y + h/2 - 0.006f);
+
+    glColor3f(cr, cg, cb);
+    drawString("ThisPatched", x - 0.03f, y - 0.015f, FONT_SCALE_LARGE);
 }
