@@ -7,7 +7,8 @@ void specialKeys(int key, int x, int y)
     {
         std::vector<std::string> menuItems = getMenuItems();
         int numItems = (int)menuItems.size();
-        if (menuSelectedItem >= numItems) menuSelectedItem = 0;
+        if (menuSelectedItem >= numItems)
+            menuSelectedItem = 0;
 
         if (key == GLUT_KEY_UP)
         {
@@ -21,26 +22,30 @@ void specialKeys(int key, int x, int y)
         }
         else if (key == GLUT_KEY_LEFT)
         {
-            const std::string& item = menuItems[menuSelectedItem];
-            if (item == "Music Volume") {
+            const std::string &item = menuItems[menuSelectedItem];
+            if (item == "Music Volume")
+            {
                 musicVolume = std::max(0, musicVolume - 10);
                 updateMusicVolume();
                 playSFX(SFX_MENU_SELECT);
             }
-            else if (item == "SFX") {
+            else if (item == "SFX")
+            {
                 sfxEnabled = !sfxEnabled;
                 playSFX(SFX_MENU_SELECT);
             }
         }
         else if (key == GLUT_KEY_RIGHT)
         {
-            const std::string& item = menuItems[menuSelectedItem];
-            if (item == "Music Volume") {
+            const std::string &item = menuItems[menuSelectedItem];
+            if (item == "Music Volume")
+            {
                 musicVolume = std::min(100, musicVolume + 10);
                 updateMusicVolume();
                 playSFX(SFX_MENU_SELECT);
             }
-            else if (item == "SFX") {
+            else if (item == "SFX")
+            {
                 sfxEnabled = !sfxEnabled;
                 playSFX(SFX_MENU_SELECT);
             }
@@ -48,27 +53,46 @@ void specialKeys(int key, int x, int y)
     }
     else if (currentGameState == STATE_PLAYING)
     {
-        if (displayingPassword || isGameOver || gameWon || isLevelTransitioning) return;
+        if (displayingPassword || isGameOver || gameWon || isLevelTransitioning)
+            return;
 
         ArrowDir pressed;
         if (inSequence && (stepWaitingForInput || isPasswordInput))
         {
-            if (key == GLUT_KEY_UP) pressed = ARROW_UP;
-            else if (key == GLUT_KEY_DOWN) pressed = ARROW_DOWN;
-            else if (key == GLUT_KEY_LEFT) pressed = ARROW_LEFT;
-            else if (key == GLUT_KEY_RIGHT) pressed = ARROW_RIGHT;
-            else return;
+            if (key == GLUT_KEY_UP)
+                pressed = ARROW_UP;
+            else if (key == GLUT_KEY_DOWN)
+                pressed = ARROW_DOWN;
+            else if (key == GLUT_KEY_LEFT)
+                pressed = ARROW_LEFT;
+            else if (key == GLUT_KEY_RIGHT)
+                pressed = ARROW_RIGHT;
+            else
+                return;
 
-            handleArrowPress(pressed);
+            
+            if (!isPasswordInput && seqIdx >= 0 && seqIdx < (int)sequence.size() && sequence[seqIdx].isHold && sequence[seqIdx].dir == pressed)
+            {
+                sequence[seqIdx].isHolding = true;
+                sequence[seqIdx].holdStartTimeMs = glutGet(GLUT_ELAPSED_TIME);
+                specialKeysState[key] = true;
+                playSFX(SFX_MENU_ENGAGE);
+            }
+            else
+            {
+                handleArrowPress(pressed);
+            }
         }
         else if (!inSequence && !player.moving)
         {
-            if (key == GLUT_KEY_LEFT) {
+            if (key == GLUT_KEY_LEFT)
+            {
                 player.highlightedNeighbor--;
                 clampHighlightedNeighbor();
                 playSFX(SFX_MOVE_HIGHLIGHT);
             }
-            if (key == GLUT_KEY_RIGHT) {
+            if (key == GLUT_KEY_RIGHT)
+            {
                 player.highlightedNeighbor++;
                 clampHighlightedNeighbor();
                 playSFX(SFX_MOVE_HIGHLIGHT);
@@ -82,22 +106,26 @@ void keyboard(unsigned char k, int x, int y)
 {
     if (k == 27) // ESC key
     {
-        if (isGameOver) {
+        if (isGameOver)
+        {
             currentGameState = STATE_MENU;
             setGameMessage("", 0.0f);
         }
-        else if (displayingPassword || isLevelTransitioning) {
+        else if (displayingPassword || isLevelTransitioning)
+        {
             return;
         }
         else if (currentGameState == STATE_ALMANAC)
         {
             currentGameState = STATE_MENU;
         }
-        else if (currentGameState == STATE_PLAYING) {
+        else if (currentGameState == STATE_PLAYING)
+        {
             currentGameState = STATE_MENU;
             setGameMessage("Paused", 1.0f);
         }
-        else if (currentGameState == STATE_MENU && gameInProgress) {
+        else if (currentGameState == STATE_MENU && gameInProgress)
+        {
             currentGameState = STATE_PLAYING;
             setGameMessage("", 0.0f);
         }
@@ -107,10 +135,12 @@ void keyboard(unsigned char k, int x, int y)
 
     if (displayingPassword)
     {
-        if (k == ' ' || k == 13) {
+        if (k == ' ' || k == 13)
+        {
             displayingPassword = false;
-            if (justRevealedPassword) {
-                Node& keyNode = nodes[player.targetNode];
+            if (justRevealedPassword)
+            {
+                Node &keyNode = nodes[player.targetNode];
                 keyNode.visited = true;
                 startMoveAnimation(player.currentNode, player.targetNode);
                 player.currentNode = player.targetNode;
@@ -136,59 +166,71 @@ void keyboard(unsigned char k, int x, int y)
     {
         std::vector<std::string> menuItems = getMenuItems();
         int numItems = (int)menuItems.size();
-        if (menuSelectedItem >= numItems) menuSelectedItem = 0;
+        if (menuSelectedItem >= numItems)
+            menuSelectedItem = 0;
 
-        if (k == 'w' || k == 'W') {
+        if (k == 'w' || k == 'W')
+        {
             menuSelectedItem = (menuSelectedItem - 1 + numItems) % numItems;
             playSFX(SFX_MENU_SELECT);
         }
-        else if (k == 's' || k == 'S') {
+        else if (k == 's' || k == 'S')
+        {
             menuSelectedItem = (menuSelectedItem + 1) % numItems;
             playSFX(SFX_MENU_SELECT);
         }
-       
+
         else if (k == 'a' || k == 'A')
         {
-            const std::string& item = menuItems[menuSelectedItem];
-            if (item == "Music Volume") {
+            const std::string &item = menuItems[menuSelectedItem];
+            if (item == "Music Volume")
+            {
                 musicVolume = std::max(0, musicVolume - 10);
                 updateMusicVolume();
                 playSFX(SFX_MENU_SELECT);
             }
-            else if (item == "SFX") {
+            else if (item == "SFX")
+            {
                 sfxEnabled = !sfxEnabled;
                 playSFX(SFX_MENU_SELECT);
             }
         }
         else if (k == 'd' || k == 'D')
         {
-            const std::string& item = menuItems[menuSelectedItem];
-            if (item == "Music Volume") {
+            const std::string &item = menuItems[menuSelectedItem];
+            if (item == "Music Volume")
+            {
                 musicVolume = std::min(100, musicVolume + 10);
                 updateMusicVolume();
                 playSFX(SFX_MENU_SELECT);
             }
-            else if (item == "SFX") {
+            else if (item == "SFX")
+            {
                 sfxEnabled = !sfxEnabled;
                 playSFX(SFX_MENU_SELECT);
             }
         }
         // SPACE/ENTER for Selection
-        else if (k == ' ' || k == 13) {
-            const std::string& item = menuItems[menuSelectedItem];
+        else if (k == ' ' || k == 13)
+        {
+            const std::string &item = menuItems[menuSelectedItem];
             playSFX(SFX_MENU_ENGAGE);
-            if (item == "New Game" || item == "Restart Game") {
+            if (item == "New Game" || item == "Restart Game")
+            {
                 resetGame();
                 currentGameState = STATE_PLAYING;
             }
-            else if (item == "Resume Game") {
+            else if (item == "Resume Game")
+            {
                 currentGameState = STATE_PLAYING;
                 setGameMessage("", 0.0f);
             }
-            else if (item == "Codex") {
+            else if (item == "Codex")
+            {
                 currentGameState = STATE_ALMANAC;
             }
-            else if (item == "Quit") {
+            else if (item == "Quit")
+            {
                 exit(0);
             }
         }
@@ -198,15 +240,18 @@ void keyboard(unsigned char k, int x, int y)
 
     if (currentGameState == STATE_PLAYING)
     {
-        if (isGameOver) return; 
+        if (isGameOver)
+            return;
 
         if (gameWon)
         {
-            if (k == ' ' || k == 13) {
-                if (!isLevelTransitioning) {
+            if (k == ' ' || k == 13)
+            {
+                if (!isLevelTransitioning)
+                {
                     isLevelTransitioning = true;
-                    levelTransitionTimer = WARP_DURATION; 
-                    playSFX(SFX_MENU_ENGAGE); 
+                    levelTransitionTimer = WARP_DURATION;
+                    playSFX(SFX_MENU_ENGAGE);
                     setGameMessage("WARP SEQUENCE INITIATED...", WARP_DURATION);
                 }
             }
@@ -214,11 +259,13 @@ void keyboard(unsigned char k, int x, int y)
             return;
         }
 
-        if (isLevelTransitioning) return; // no input during transition /warp
+        if (isLevelTransitioning)
+            return; // no input during transition /warp
 
         if (inSequence && (stepWaitingForInput || isPasswordInput))
         {
-            if (isPasswordInput && (k == ' ' || k == 13)) {
+            if (isPasswordInput && (k == ' ' || k == 13))
+            {
                 inSequence = false;
                 isPasswordInput = false;
                 sequence.clear();
@@ -234,20 +281,37 @@ void keyboard(unsigned char k, int x, int y)
             }
 
             ArrowDir pressed;
-            if (k == 'w' || k == 'W') pressed = ARROW_UP;
-            else if (k == 's' || k == 'S') pressed = ARROW_DOWN;
-            else if (k == 'a' || k == 'A') pressed = ARROW_LEFT;
-            else if (k == 'd' || k == 'D') pressed = ARROW_RIGHT;
-            else return;
+            if (k == 'w' || k == 'W')
+                pressed = ARROW_UP;
+            else if (k == 's' || k == 'S')
+                pressed = ARROW_DOWN;
+            else if (k == 'a' || k == 'A')
+                pressed = ARROW_LEFT;
+            else if (k == 'd' || k == 'D')
+                pressed = ARROW_RIGHT;
+            else
+                return;
 
-            handleArrowPress(pressed);
+            // start hold for hold note, otherwise instant press
+            if (!isPasswordInput && seqIdx >= 0 && seqIdx < (int)sequence.size() && sequence[seqIdx].isHold && sequence[seqIdx].dir == pressed)
+            {
+                sequence[seqIdx].isHolding = true;
+                sequence[seqIdx].holdStartTimeMs = glutGet(GLUT_ELAPSED_TIME);
+                keysState[(unsigned char)k] = true;
+                playSFX(SFX_MENU_ENGAGE);
+            }
+            else
+            {
+                handleArrowPress(pressed);
+            }
             glutPostRedisplay();
             return;
         }
 
         if (k == ' ' || k == 13)
         {
-            if (inSequence) {
+            if (inSequence)
+            {
                 // cancel sequence
                 inSequence = false;
                 isPasswordInput = false;
@@ -260,14 +324,18 @@ void keyboard(unsigned char k, int x, int y)
                 totalHazardSequences = 0;
                 setGameMessage("Sequence Cancelled", 2.0f);
             }
-            else {
-                if (player.highlightedNeighbor == -1) {
+            else
+            {
+                if (player.highlightedNeighbor == -1)
+                {
                     // inspect key
-                    Node& selfNode = nodes[player.currentNode];
+                    Node &selfNode = nodes[player.currentNode];
                     int lockId = -1;
-                    if (selfNode.isKey) lockId = selfNode.lockNode;
+                    if (selfNode.isKey)
+                        lockId = selfNode.lockNode;
 
-                    if (lockId != -1 && revealedPasswords.count(lockId)) {
+                    if (lockId != -1 && revealedPasswords.count(lockId))
+                    {
                         sequence.clear();
                         for (ArrowDir dir : revealedPasswords[lockId])
                             sequence.emplace_back(dir, 0, 1.0f, false);
@@ -275,15 +343,18 @@ void keyboard(unsigned char k, int x, int y)
                         justRevealedPassword = false;
                         setGameMessage("Viewing Password. Press SPACE.", 1000.0f);
                     }
-                    else if (selfNode.isKey) {
+                    else if (selfNode.isKey)
+                    {
                         setGameMessage("Password not yet discovered!", 2.5f);
-                        playSFX(SFX_TIMING_FAIL); 
+                        playSFX(SFX_TIMING_FAIL);
                     }
-                    else {
-                        playSFX(SFX_TIMING_FAIL); 
+                    else
+                    {
+                        playSFX(SFX_TIMING_FAIL);
                     }
                 }
-                else {
+                else
+                {
                     attemptMoveToHighlightedNeighbor();
                 }
             }
@@ -293,17 +364,172 @@ void keyboard(unsigned char k, int x, int y)
 
         if (!inSequence && !player.moving)
         {
-            if (k == 'a' || k == 'A') {
+            if (k == 'a' || k == 'A')
+            {
                 player.highlightedNeighbor--;
                 clampHighlightedNeighbor();
                 playSFX(SFX_MOVE_HIGHLIGHT);
             }
-            if (k == 'd' || k == 'D') {
+            if (k == 'd' || k == 'D')
+            {
                 player.highlightedNeighbor++;
                 clampHighlightedNeighbor();
                 playSFX(SFX_MOVE_HIGHLIGHT);
             }
             glutPostRedisplay();
+        }
+    }
+}
+
+// key release handlers to evaluate hold notes
+void specialKeysUp(int key, int x, int y)
+{
+    specialKeysState[key] = false;
+    if (currentGameState != STATE_PLAYING)
+        return;
+    if (displayingPassword || isGameOver || gameWon || isLevelTransitioning)
+        return;
+
+    if (inSequence && (stepWaitingForInput || isPasswordInput))
+    {
+        ArrowDir pressed;
+        if (key == GLUT_KEY_UP)
+            pressed = ARROW_UP;
+        else if (key == GLUT_KEY_DOWN)
+            pressed = ARROW_DOWN;
+        else if (key == GLUT_KEY_LEFT)
+            pressed = ARROW_LEFT;
+        else if (key == GLUT_KEY_RIGHT)
+            pressed = ARROW_RIGHT;
+        else
+            return;
+
+        if (!isPasswordInput && seqIdx >= 0 && seqIdx < (int)sequence.size())
+        {
+            Arrow &a = sequence[seqIdx];
+            if (a.isHold && a.isHolding && a.dir == pressed)
+            {
+                int now = glutGet(GLUT_ELAPSED_TIME);
+                int heldMs = now - a.holdStartTimeMs;
+                a.isHolding = false;
+
+                if (heldMs >= a.holdDurationMs)
+                {
+                    // full hold = fail
+                    a.isHolding = false;
+                    handleSequenceFailure(false);
+                }
+                else
+                {
+                    bool rewardNode50 = (player.targetNode >= 0 && nodes[player.targetNode].type == NODE_REWARD);
+                    if (rewardNode50 && heldMs * 2 >= a.holdDurationMs)
+                    {
+                        a.result = 1; // perfect
+
+                        // common success path
+                        playSFX(SFX_TIMING_PERFECT);
+                        spawnParticles(12, player.x, player.y, 0.6f, 0.1f, 1.0f, 0.2f);
+                        spawnFloatingText("PERFECT", player.x, player.y + 0.1f, 0.2f, 1.0f, 0.5f, 1.2f);
+
+                        a.displayAnim = 1.2f;
+                        seqIdx++;
+                        stepWaitingForInput = false;
+
+                        int nowms = glutGet(GLUT_ELAPSED_TIME);
+                        if (seqIdx < (int)sequence.size())
+                        {
+                            stepStartTimeMs = nowms + 100;
+                            stepWaitingForInput = true;
+                        }
+                        else
+                        {
+                            finishSequenceSuccess();
+                        }
+                    }
+                    else
+                    {
+                        handleSequenceFailure(false);
+                    }
+                }
+            }
+        }
+    }
+    glutPostRedisplay();
+}
+
+void keyboardUp(unsigned char k, int x, int y)
+{
+    keysState[(unsigned char)k] = false;
+    if (currentGameState != STATE_PLAYING)
+        return;
+    if (displayingPassword || isGameOver || gameWon || isLevelTransitioning)
+        return;
+
+    if (inSequence && (stepWaitingForInput || isPasswordInput))
+    {
+        ArrowDir pressed;
+        if (k == 'w' || k == 'W')
+            pressed = ARROW_UP;
+        else if (k == 's' || k == 'S')
+            pressed = ARROW_DOWN;
+        else if (k == 'a' || k == 'A')
+            pressed = ARROW_LEFT;
+        else if (k == 'd' || k == 'D')
+            pressed = ARROW_RIGHT;
+        else
+            return;
+
+        if (!isPasswordInput && seqIdx >= 0 && seqIdx < (int)sequence.size())
+        {
+            if (!isPasswordInput && seqIdx >= 0 && seqIdx < (int)sequence.size())
+            {
+                Arrow &a = sequence[seqIdx];
+                if (a.isHold && a.isHolding && a.dir == pressed)
+                {
+                    int now = glutGet(GLUT_ELAPSED_TIME);
+                    int heldMs = now - a.holdStartTimeMs;
+                    a.isHolding = false;
+
+                        if (heldMs >= a.holdDurationMs)
+                        {
+                            // full hold = fail
+                            a.isHolding = false;
+                            handleSequenceFailure(false);
+                        }
+                        else
+                        {
+                            bool rewardNode50_k = (player.targetNode >= 0 && nodes[player.targetNode].type == NODE_REWARD);
+                            if (rewardNode50_k && heldMs * 2 >= a.holdDurationMs)
+                            {
+                                a.result = 1; // perfect
+
+                                // common success path
+                                playSFX(SFX_TIMING_PERFECT);
+                                spawnParticles(12, player.x, player.y, 0.6f, 0.1f, 1.0f, 0.2f);
+                                spawnFloatingText("PERFECT", player.x, player.y + 0.1f, 0.2f, 1.0f, 0.5f, 1.2f);
+
+                                a.displayAnim = 1.2f;
+                                seqIdx++;
+                                stepWaitingForInput = false;
+
+                                int nowms = glutGet(GLUT_ELAPSED_TIME);
+                                if (seqIdx < (int)sequence.size())
+                                {
+                                    stepStartTimeMs = nowms + 100;
+                                    stepWaitingForInput = true;
+                                }
+                                else
+                                {
+                                    finishSequenceSuccess();
+                                }
+                            }
+                            else
+                            {
+                                handleSequenceFailure(false);
+                            }
+                        }
+                }
+            }
         }
     }
 }

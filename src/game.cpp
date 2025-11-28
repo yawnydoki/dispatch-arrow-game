@@ -1,6 +1,10 @@
 #include "game.h"
 #include <ctime>
 
+//  tracks pressed keys for hold detection
+std::map<unsigned char, bool> keysState;
+std::map<int, bool> specialKeysState;
+
 std::vector<Node> nodes;
 Player player;
 std::vector<Particle> particles;

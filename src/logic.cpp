@@ -125,6 +125,27 @@ static void startRhythmSequence(int targetNodeIndex)
     if (currentSequenceIsHazard)
         len = 3 + (lenDist(rng) / 2);
 
+    if (targetType == NODE_REWARD)
+    {
+        sequence.clear();
+        Arrow a;
+        a.dir = (ArrowDir)arrowDist(rng);
+        a.result = 0;
+        a.displayAnim = 1.0f;
+        a.isFake = false;
+        a.isHold = true;
+
+        a.holdDurationMs = 250 + (rng() % 451);
+        sequence.push_back(a);
+
+        seqIdx = 0;
+        inSequence = true;
+        stepWaitingForInput = true;
+        stepStartTimeMs = glutGet(GLUT_ELAPSED_TIME) + 200;
+        playSFX(SFX_MENU_ENGAGE);
+        return;
+    }
+
     sequence.clear();
     for (int i = 0; i < len; ++i)
     {
@@ -133,6 +154,7 @@ static void startRhythmSequence(int targetNodeIndex)
         a.result = 0;
         a.displayAnim = 1.0f;
         a.isFake = false;
+
         if (currentSequenceIsHazard && fakeRoll(rng) < 20)
         {
             a.isFake = true;
@@ -205,7 +227,7 @@ void generateNextHazardSequence()
         a.dir = (ArrowDir)arrowDist(rng);
         a.result = 0;
         a.displayAnim = 1.0f;
-        a.isFake = (fakeRoll(rng) < 20); 
+        a.isFake = (fakeRoll(rng) < 20);
         sequence.push_back(a);
     }
 
@@ -214,7 +236,7 @@ void generateNextHazardSequence()
     stepStartTimeMs = glutGet(GLUT_ELAPSED_TIME) + 200;
 }
 
-static void handleSequenceFailure(bool passwordFail = false)
+void handleSequenceFailure(bool passwordFail)
 {
     if (!sequence.empty() && seqIdx >= 0 && seqIdx < (int)sequence.size() && !passwordFail)
     {
@@ -249,7 +271,7 @@ static void handleSequenceFailure(bool passwordFail = false)
     totalHazardSequences = 0;
 }
 
-static void finishSequenceSuccess()
+void finishSequenceSuccess()
 {
     if (currentSequenceIsHazard)
     {
@@ -455,7 +477,7 @@ void handleArrowPress(ArrowDir pressed)
 
     if (sequenceFailed)
     {
-        handleSequenceFailure();
+        handleSequenceFailure(true);
         return;
     }
 
@@ -754,6 +776,21 @@ void updateGame()
         }
     }
 
+    if (inSequence && !isPasswordInput && stepWaitingForInput && seqIdx >= 0 && seqIdx < (int)sequence.size())
+    {
+        Arrow &a = sequence[seqIdx];
+        if (a.isHold && a.isHolding)
+        {
+            int nowMs = glutGet(GLUT_ELAPSED_TIME);
+            int heldMs = nowMs - a.holdStartTimeMs;
+            if (heldMs >= a.holdDurationMs)
+            {
+                a.isHolding = false;
+                handleSequenceFailure(false);
+            }
+        }
+    }
+
     if (gameMessageTimer > 0.0f)
     {
         gameMessageTimer -= dt;
@@ -809,7 +846,7 @@ void updateGame()
         }
         else if (dt_ms > currentBadMs + 300)
         {
-            handleSequenceFailure();
+            handleSequenceFailure(false);
         }
     }
 

@@ -2,9 +2,9 @@
 #define CONSTANTS_H
 
 // timing n movement
-const int TIMING_PERFECT_MS = 300;
-const int TIMING_GOOD_MS = 600;
-const int TIMING_BAD_MS = 1000;
+const int TIMING_PERFECT_MS = 450; 
+const int TIMING_GOOD_MS = 900;   
+const int TIMING_BAD_MS = 1500;    
 const int MOVE_DURATION_MS = 600;
 
 // game setting

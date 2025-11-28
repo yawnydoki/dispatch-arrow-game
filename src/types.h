@@ -46,6 +46,12 @@ struct Arrow
     float displayAnim = 1.0f;
     bool isFake = false;
 
+    // hold notes
+    bool isHold = false;
+    int holdDurationMs = 0;
+    bool isHolding = false; 
+    int holdStartTimeMs = 0;
+
     Arrow(ArrowDir d = ARROW_UP, int r = 0, float anim = 1.0f, bool fake = false)
         : dir(d), result(r), displayAnim(anim), isFake(fake) {}
 };

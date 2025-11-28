@@ -802,6 +802,37 @@ void drawSequenceUI()
         }
 
         drawArrowShape(px, arrowY, sequence[i].dir, sequence[i].result, ARROW_DISPLAY_SIZE, animScale, sequence[i].isFake);
+
+        // draw hold indicator if this arrow is a hold note
+        if (sequence[i].isHold)
+        {
+            float barW = 0.06f;
+            float barH = 0.01f;
+            float barX = px - barW / 2.0f;
+            float barY = arrowY - 0.045f;
+
+            // background
+            glColor3f(0.2f, 0.2f, 0.2f);
+            drawQuad(barX, barY - barH/2, barX + barW, barY + barH/2);
+
+            // progress if holding
+            if (i == seqIdx && sequence[i].isHolding && sequence[i].holdDurationMs > 0)
+            {
+                int now = glutGet(GLUT_ELAPSED_TIME);
+                float progress = (float)(now - sequence[i].holdStartTimeMs) / (float)sequence[i].holdDurationMs;
+                if (progress < 0.0f) progress = 0.0f;
+                if (progress > 1.0f) progress = 1.0f;
+
+                glColor3f(0.1f, 0.7f, 1.0f);
+                drawQuad(barX, barY - barH/2, barX + barW * progress, barY + barH/2);
+            }
+            else
+            {
+                // idle small marker to show its a hold note
+                glColor3f(0.6f, 0.6f, 0.6f);
+                drawQuad(barX + barW*0.5f - 0.005f, barY - barH/2, barX + barW*0.5f + 0.005f, barY + barH/2);
+            }
+        }
     }
 
     if (stepWaitingForInput && seqIdx < (int)sequence.size())

@@ -73,7 +73,9 @@ int main(int argc, char** argv)
     playBackgroundMusic();
     glutDisplayFunc(display);
     glutKeyboardFunc(keyboard);
+    glutKeyboardUpFunc(keyboardUp);
     glutSpecialFunc(specialKeys);
+    glutSpecialUpFunc(specialKeysUp);
     glutReshapeFunc(reshape);
     glutPassiveMotionFunc(passiveMouse);
 

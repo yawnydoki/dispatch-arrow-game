@@ -65,6 +65,9 @@ extern float inputCooldown;
 
 extern int g_mouseX, g_mouseY;
 
+extern std::map<unsigned char, bool> keysState;
+extern std::map<int, bool> specialKeysState;
+
 // core funcs
 void passiveMouse(int x, int y);
 void setGameMessage(const std::string& msg, float duration = 2.0f);
@@ -78,6 +81,8 @@ void attemptMoveToHighlightedNeighbor();
 void handleArrowPress(ArrowDir pressed);
 void handlePasswordInput(ArrowDir pressed);
 void generateNextHazardSequence();
+void handleSequenceFailure(bool passwordFail);
+void finishSequenceSuccess();
 void makeMap(int numNodes, int minLinks, int maxLinks, int numLocks);
 void initLore();
 void updateShockwaves(float dt);
@@ -119,7 +124,9 @@ void playSFX(const char* file);
 void display();
 void reshape(int w, int h);
 void keyboard(unsigned char k, int x, int y);
+void keyboardUp(unsigned char k, int x, int y);
 void specialKeys(int key, int x, int y);
+void specialKeysUp(int key, int x, int y);
 void timerFunc(int);
 
 #endif // GAME_H
